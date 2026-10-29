@@ -33,8 +33,11 @@ OBJS = \
 	parse_type.o \
 	parse_utilcmd.o \
 	parser.o \
+	parsereng.o \
 	scan.o \
 	scansup.o
+
+SUBDIRS = mysql
 
 include $(top_srcdir)/src/backend/common.mk
 

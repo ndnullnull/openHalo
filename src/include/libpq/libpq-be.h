@@ -28,6 +28,7 @@
 #include <netinet/tcp.h>
 
 #include "libpq/pg-gssapi.h"
+#include "postmaster/protocol_interface.h"
 
 #ifdef ENABLE_SSPI
 #define SECURITY_WIN32
@@ -127,6 +128,9 @@ typedef struct ClientConnectionInfo
 
 typedef struct Port
 {
+	/* NULL selects the upstream PostgreSQL protocol. */
+	const ProtocolInterface *protocol_handler;
+
 	pgsocket	sock;			/* File descriptor */
 	bool		noblock;		/* is the socket in non-blocking mode? */
 	ProtocolVersion proto;		/* FE/BE protocol version */
@@ -247,6 +251,8 @@ typedef struct Port
  */
 typedef struct ClientSocket
 {
+	/* Value copied across fork/EXEC_BACKEND; never a function pointer. */
+	ProtocolKind protocol_kind;
 	pgsocket	sock;			/* File descriptor */
 	SockAddr	raddr;			/* remote addr (client) */
 } ClientSocket;

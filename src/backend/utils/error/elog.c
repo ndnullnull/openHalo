@@ -1734,7 +1734,13 @@ EmitErrorReport(void)
 
 	/* Send to client, if enabled */
 	if (edata->output_to_client)
-		send_message_to_frontend(edata);
+	{
+		if (MyProcPort && MyProcPort->protocol_handler &&
+			MyProcPort->protocol_handler->send_message)
+			MyProcPort->protocol_handler->send_message(edata);
+		else
+			send_message_to_frontend(edata);
+	}
 
 	MemoryContextSwitchTo(oldcontext);
 	recursion_depth--;

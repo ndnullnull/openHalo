@@ -5088,3 +5088,22 @@ pg_is_other_temp_schema(PG_FUNCTION_ARGS)
 
 	PG_RETURN_BOOL(isOtherTempNamespace(oid));
 }
+
+/* OpenHalo: current MySQL database is the default creation namespace. */
+Oid
+getCurrentNamespaceOid(void)
+{
+	Oid namespaceId;
+
+	recomputeNamespacePath();
+	if (activeTempCreationPending)
+	{
+		AccessTempTableNamespace(true);
+		return myTempNamespace;
+	}
+	namespaceId = activeCreationNamespace;
+	if (!OidIsValid(namespaceId))
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_SCHEMA),
+						errmsg("no schema has been selected to create in")));
+	return namespaceId;
+}

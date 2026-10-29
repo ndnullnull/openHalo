@@ -602,7 +602,8 @@ DefineType(ParseState *pstate, List *names, List *parameters)
 				   -1,			/* typMod (Domains only) */
 				   0,			/* Array Dimensions of typbasetype */
 				   false,		/* Type NOT NULL */
-				   collation);	/* type's collation */
+				   collation,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 	Assert(typoid == address.objectId);
 
 	/*
@@ -644,7 +645,8 @@ DefineType(ParseState *pstate, List *names, List *parameters)
 			   -1,				/* typMod (Domains only) */
 			   0,				/* Array dimensions of typbasetype */
 			   false,			/* Type NOT NULL */
-			   collation);		/* type's collation */
+			   collation,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 
 	pfree(array_type);
 
@@ -1094,7 +1096,8 @@ DefineDomain(ParseState *pstate, CreateDomainStmt *stmt)
 				   basetypeMod, /* typeMod value */
 				   typNDims,	/* Array dimensions for base type */
 				   typNotNull,	/* Type NOT NULL */
-				   domaincoll); /* type's collation */
+				   domaincoll,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 
 	/*
 	 * Create the array type that goes with it.
@@ -1135,7 +1138,8 @@ DefineDomain(ParseState *pstate, CreateDomainStmt *stmt)
 			   -1,				/* typMod (Domains only) */
 			   0,				/* Array dimensions of typbasetype */
 			   false,			/* Type NOT NULL */
-			   domaincoll);		/* type's collation */
+			   domaincoll,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 
 	pfree(domainArrayName);
 
@@ -1257,7 +1261,8 @@ DefineEnum(CreateEnumStmt *stmt)
 				   -1,			/* typMod (Domains only) */
 				   0,			/* Array dimensions of typbasetype */
 				   false,		/* Type NOT NULL */
-				   InvalidOid); /* type's collation */
+				   InvalidOid,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 
 	/* Enter the enum's values into pg_enum */
 	EnumValuesCreate(enumTypeAddr.objectId, stmt->vals);
@@ -1298,7 +1303,8 @@ DefineEnum(CreateEnumStmt *stmt)
 			   -1,				/* typMod (Domains only) */
 			   0,				/* Array dimensions of typbasetype */
 			   false,			/* Type NOT NULL */
-			   InvalidOid);		/* type's collation */
+			   InvalidOid,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 
 	pfree(enumArrayName);
 
@@ -1610,7 +1616,8 @@ DefineRange(ParseState *pstate, CreateRangeStmt *stmt)
 				   -1,			/* typMod (Domains only) */
 				   0,			/* Array dimensions of typbasetype */
 				   false,		/* Type NOT NULL */
-				   InvalidOid); /* type's collation (ranges never have one) */
+				   InvalidOid,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 	Assert(typoid == InvalidOid || typoid == address.objectId);
 	typoid = address.objectId;
 
@@ -1677,7 +1684,8 @@ DefineRange(ParseState *pstate, CreateRangeStmt *stmt)
 				   -1,			/* typMod (Domains only) */
 				   0,			/* Array dimensions of typbasetype */
 				   false,		/* Type NOT NULL */
-				   InvalidOid); /* type's collation (ranges never have one) */
+				   InvalidOid,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 	Assert(multirangeOid == mltrngaddress.objectId);
 
 	/* Create the entry in pg_range */
@@ -1720,7 +1728,8 @@ DefineRange(ParseState *pstate, CreateRangeStmt *stmt)
 			   -1,				/* typMod (Domains only) */
 			   0,				/* Array dimensions of typbasetype */
 			   false,			/* Type NOT NULL */
-			   InvalidOid);		/* typcollation */
+			   InvalidOid,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 
 	pfree(rangeArrayName);
 
@@ -1759,7 +1768,8 @@ DefineRange(ParseState *pstate, CreateRangeStmt *stmt)
 			   -1,				/* typMod (Domains only) */
 			   0,				/* Array dimensions of typbasetype */
 			   false,			/* Type NOT NULL */
-			   InvalidOid);		/* typcollation */
+			   InvalidOid,
+			   TYPE_ACCESS_NON_PACKAGE_MEMBER); /* OpenHalo access metadata */
 
 	/* And create the constructor functions for this range type */
 	makeRangeConstructors(typeName, typeNamespace, typoid, rangeSubtype);
@@ -1841,7 +1851,8 @@ makeRangeConstructors(const char *name, Oid namespace,
 								 PointerGetDatum(NULL), /* proconfig */
 								 InvalidOid,	/* prosupport */
 								 1.0,	/* procost */
-								 0.0);	/* prorows */
+								 0.0,	/* prorows */
+							 NON_PACKAGE_MEMBER);
 
 		/*
 		 * Make the constructors internally-dependent on the range type so
@@ -1907,7 +1918,8 @@ makeMultirangeConstructors(const char *name, Oid namespace,
 							 PointerGetDatum(NULL), /* proconfig */
 							 InvalidOid,	/* prosupport */
 							 1.0,	/* procost */
-							 0.0);	/* prorows */
+							 0.0,	/* prorows */
+							 NON_PACKAGE_MEMBER);
 
 	/*
 	 * Make the constructor internally-dependent on the multirange type so
@@ -1952,7 +1964,8 @@ makeMultirangeConstructors(const char *name, Oid namespace,
 							 PointerGetDatum(NULL), /* proconfig */
 							 InvalidOid,	/* prosupport */
 							 1.0,	/* procost */
-							 0.0);	/* prorows */
+							 0.0,	/* prorows */
+							 NON_PACKAGE_MEMBER);
 	/* ditto */
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
 	pfree(argtypes);
@@ -1991,7 +2004,8 @@ makeMultirangeConstructors(const char *name, Oid namespace,
 							 PointerGetDatum(NULL), /* proconfig */
 							 InvalidOid,	/* prosupport */
 							 1.0,	/* procost */
-							 0.0);	/* prorows */
+							 0.0,	/* prorows */
+							 NON_PACKAGE_MEMBER);
 	/* ditto */
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
 	pfree(argtypes);

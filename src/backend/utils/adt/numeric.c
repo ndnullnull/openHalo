@@ -20,6 +20,7 @@
  */
 
 #include "postgres.h"
+#include "utils/adtext.h"
 
 #include <ctype.h>
 #include <float.h>
@@ -34,6 +35,7 @@
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/supportnodes.h"
+#include "utils/mysql/mys_compat.h"
 #include "optimizer/optimizer.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
@@ -647,6 +649,9 @@ numeric_in(PG_FUNCTION_ARGS)
 	const char *numstart;
 	int			sign;
 
+	if (adtext && adtext->pre_numeric_in)
+		str = adtext->pre_numeric_in(str);
+
 	/* Skip leading spaces */
 	cp = str;
 	while (*cp)
@@ -661,6 +666,9 @@ numeric_in(PG_FUNCTION_ARGS)
 	 * but it's worth doing here, since it simplifies the handling of
 	 * infinities and non-decimal integers.
 	 */
+	if (MySQLNonStrictEmptyInput(cp))
+		PG_RETURN_NUMERIC(make_result(&const_zero));
+
 	numstart = cp;
 	sign = NUMERIC_POS;
 
@@ -838,6 +846,8 @@ numeric_out(PG_FUNCTION_ARGS)
 	init_var_from_num(num, &x);
 
 	str = get_str_from_var(&x);
+	if (adtext && adtext->post_numeric_out)
+		str = adtext->post_numeric_out(str);
 
 	PG_RETURN_CSTRING(str);
 }

@@ -3,7 +3,7 @@
  * pg_config.c
  *
  * This program reports various pieces of information about the
- * installed version of PostgreSQL.  Packages that interface to
+ * installed version of Halo.  Packages that interface to
  * PostgreSQL can use it to configure their build.
  *
  * This is a C implementation of the previous shell script written by
@@ -70,7 +70,7 @@ static const InfoItem info_items[] = {
 static void
 help(void)
 {
-	printf(_("\n%s provides information about the installed version of PostgreSQL.\n\n"), progname);
+	printf(_("\n%s provides information about the installed version of Halo.\n\n"), progname);
 	printf(_("Usage:\n"));
 	printf(_("  %s [OPTION]...\n\n"), progname);
 	printf(_("Options:\n"));
@@ -89,16 +89,16 @@ help(void)
 	printf(_("  --sysconfdir          show location of system-wide configuration files\n"));
 	printf(_("  --pgxs                show location of extension makefile\n"));
 	printf(_("  --configure           show options given to \"configure\" script when\n"
-			 "                        PostgreSQL was built\n"));
-	printf(_("  --cc                  show CC value used when PostgreSQL was built\n"));
-	printf(_("  --cppflags            show CPPFLAGS value used when PostgreSQL was built\n"));
-	printf(_("  --cflags              show CFLAGS value used when PostgreSQL was built\n"));
-	printf(_("  --cflags_sl           show CFLAGS_SL value used when PostgreSQL was built\n"));
-	printf(_("  --ldflags             show LDFLAGS value used when PostgreSQL was built\n"));
-	printf(_("  --ldflags_ex          show LDFLAGS_EX value used when PostgreSQL was built\n"));
-	printf(_("  --ldflags_sl          show LDFLAGS_SL value used when PostgreSQL was built\n"));
-	printf(_("  --libs                show LIBS value used when PostgreSQL was built\n"));
-	printf(_("  --version             show the PostgreSQL version\n"));
+			 "                        Halo was built\n"));
+	printf(_("  --cc                  show CC value used when Halo was built\n"));
+	printf(_("  --cppflags            show CPPFLAGS value used when Halo was built\n"));
+	printf(_("  --cflags              show CFLAGS value used when Halo was built\n"));
+	printf(_("  --cflags_sl           show CFLAGS_SL value used when Halo was built\n"));
+	printf(_("  --ldflags             show LDFLAGS value used when Halo was built\n"));
+	printf(_("  --ldflags_ex          show LDFLAGS_EX value used when Halo was built\n"));
+	printf(_("  --ldflags_sl          show LDFLAGS_SL value used when Halo was built\n"));
+	printf(_("  --libs                show LIBS value used when Halo was built\n"));
+	printf(_("  --version             show the Halo version\n"));
 	printf(_("  -?, --help            show this help, then exit\n"));
 	printf(_("\nWith no arguments, all known items are shown.\n\n"));
 	printf(_("Report bugs to <%s>.\n"), PACKAGE_BUGREPORT);

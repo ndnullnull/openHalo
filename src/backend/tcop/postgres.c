@@ -18,6 +18,11 @@
  */
 
 #include "postgres.h"
+#include "miscpost.h"
+#include "adapter/mysql/systemVar.h"
+#include "parser/parsereng.h"
+
+unsigned long stmtLen = 0;
 
 #include <fcntl.h>
 #include <limits.h>
@@ -483,7 +488,13 @@ ReadCommand(StringInfo inBuf)
 	int			result;
 
 	if (whereToSendOutput == DestRemote)
-		result = SocketBackend(inBuf);
+	{
+		if (MyProcPort && MyProcPort->protocol_handler &&
+			MyProcPort->protocol_handler->read_command)
+			result = MyProcPort->protocol_handler->read_command(inBuf);
+		else
+			result = SocketBackend(inBuf);
+	}
 	else
 		result = InteractiveBackend(inBuf);
 	return result;
@@ -1141,6 +1152,7 @@ exec_simple_query(const char *query_string)
 
 		/* Make sure we are in a transaction command */
 		start_xact_command();
+		applyMySQLNextTransaction(parsetree->stmt);
 
 		/*
 		 * If using an implicit transaction block, and we're not already in a
@@ -2788,6 +2800,7 @@ start_xact_command(void)
 {
 	if (!xact_started)
 	{
+		restoreSystemVariableSession();
 		StartTransactionCommand();
 
 		xact_started = true;
@@ -4326,6 +4339,8 @@ PostgresMain(const char *dbname, const char *username)
 	if (am_walsender)
 		InitWalSender();
 
+	postInitHooks();
+
 	/*
 	 * Send this backend's cancellation info to the frontend.
 	 */
@@ -4334,11 +4349,17 @@ PostgresMain(const char *dbname, const char *username)
 		StringInfoData buf;
 
 		Assert(MyCancelKeyLength > 0);
-		pq_beginmessage(&buf, PqMsg_BackendKeyData);
-		pq_sendint32(&buf, (int32) MyProcPid);
-
-		pq_sendbytes(&buf, MyCancelKey, MyCancelKeyLength);
-		pq_endmessage(&buf);
+		if (MyProcPort && MyProcPort->protocol_handler &&
+			MyProcPort->protocol_handler->send_cancel_key)
+			MyProcPort->protocol_handler->send_cancel_key(MyProcPid,
+															(const char *) MyCancelKey, MyCancelKeyLength);
+		else
+		{
+			pq_beginmessage(&buf, PqMsg_BackendKeyData);
+			pq_sendint32(&buf, (int32) MyProcPid);
+			pq_sendbytes(&buf, MyCancelKey, MyCancelKeyLength);
+			pq_endmessage(&buf);
+		}
 		/* Need not flush since ReadyForQuery will do it. */
 	}
 
@@ -4430,7 +4451,11 @@ PostgresMain(const char *dbname, const char *username)
 		DoingCommandRead = false;
 
 		/* Make sure libpq is in a good state */
-		pq_comm_reset();
+		if (MyProcPort && MyProcPort->protocol_handler &&
+			MyProcPort->protocol_handler->comm_reset)
+			MyProcPort->protocol_handler->comm_reset();
+		else
+			pq_comm_reset();
 
 		/* Report the error to the client and/or server log */
 		EmitErrorReport();
@@ -4498,7 +4523,10 @@ PostgresMain(const char *dbname, const char *username)
 		 * messages from the client, so there isn't much we can do with the
 		 * connection anymore.
 		 */
-		if (pq_is_reading_msg())
+		if ((MyProcPort && MyProcPort->protocol_handler &&
+			 MyProcPort->protocol_handler->is_reading_msg)
+			? MyProcPort->protocol_handler->is_reading_msg()
+			: pq_is_reading_msg())
 			ereport(FATAL,
 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
 					 errmsg("terminating connection because protocol synchronization was lost")));
@@ -4746,6 +4774,14 @@ PostgresMain(const char *dbname, const char *username)
 		 * (7) process the command.  But ignore it if we're skipping till
 		 * Sync.
 		 */
+		if (firstchar != EOF && MyProcPort && MyProcPort->protocol_handler &&
+			MyProcPort->protocol_handler->process_command &&
+			MyProcPort->protocol_handler->process_command(&firstchar, &input_message) == 1)
+		{
+			send_ready_for_query = true;
+			continue;
+		}
+
 		if (ignore_till_sync && firstchar != EOF)
 			continue;
 
@@ -4758,8 +4794,17 @@ PostgresMain(const char *dbname, const char *username)
 					/* Set statement_timestamp() */
 					SetCurrentStatementStartTimestamp();
 
-					query_string = pq_getmsgstring(&input_message);
-					pq_getmsgend(&input_message);
+					if (MyProcPort && MyProcPort->protocol_handler &&
+						MyProcPort->protocol_handler->type == PROTOCOL_MYSQL)
+					{
+						stmtLen = input_message.len - 1;
+						query_string = input_message.data + input_message.offset;
+					}
+					else
+					{
+						query_string = pq_getmsgstring(&input_message);
+						pq_getmsgend(&input_message);
+					}
 
 					if (am_walsender)
 					{

@@ -57,6 +57,7 @@
  */
 
 /*							yyyymmddN */
-#define CATALOG_VERSION_NO	202506291
+/* OpenHalo18 catalog: pg_proc.proaccess and pg_type.typaccess; distinct from native PG18. */
+#define CATALOG_VERSION_NO	202610282
 
 #endif

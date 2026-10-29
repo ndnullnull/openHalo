@@ -33,6 +33,7 @@
  * Portions Copyright (c) 1994, Regents of the University of California
  */
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "access/table.h"
 #include "catalog/pg_class.h"
@@ -95,7 +96,7 @@ row_security_policy_hook_type row_security_policy_hook_restrictive = NULL;
  * set to true if any of the quals returned contain sublinks.
  */
 void
-get_row_security_policies(Query *root, RangeTblEntry *rte, int rt_index,
+standard_get_row_security_policies(Query *root, RangeTblEntry *rte, int rt_index,
 						  List **securityQuals, List **withCheckOptions,
 						  bool *hasRowSecurity, bool *hasSubLinks)
 {
@@ -304,6 +305,19 @@ get_row_security_policies(Query *root, RangeTblEntry *rte, int rt_index,
 		 * For INSERT ... ON CONFLICT DO UPDATE we need additional policy
 		 * checks for the UPDATE which may be applied to the same RTE.
 		 */
+		if (commandType == CMD_INSERT && root->onConflict &&
+			root->onConflict->action == ONCONFLICT_REPLACE)
+		{
+			List *delete_permissive;
+			List *delete_restrictive;
+
+			get_policies_for_relation(rel, CMD_DELETE, user_id,
+									 &delete_permissive, &delete_restrictive);
+			add_with_check_options(rel, rt_index, WCO_RLS_CONFLICT_CHECK,
+								   delete_permissive, delete_restrictive,
+								   withCheckOptions, hasSubLinks, true);
+		}
+
 		if (commandType == CMD_INSERT &&
 			root->onConflict && root->onConflict->action == ONCONFLICT_UPDATE)
 		{
@@ -929,4 +943,18 @@ check_role_for_policy(ArrayType *policy_roles, Oid user_id)
 	}
 
 	return false;
+}
+
+/* Replaceable engine entries; the standard bodies retain PG18 semantics. */
+
+void
+get_row_security_policies(Query *root, RangeTblEntry *rte, int rt_index, List **securityQuals,
+							 List **withCheckOptions, bool *hasRowSecurity, bool *hasSubLinks)
+{
+	if (parserengine && parserengine->rewrite && parserengine->rewrite->get_row_security_policies)
+		parserengine->rewrite->get_row_security_policies(root, rte, rt_index, securityQuals,
+		withCheckOptions, hasRowSecurity, hasSubLinks);
+	else
+		standard_get_row_security_policies(root, rte, rt_index, securityQuals, withCheckOptions,
+		hasRowSecurity, hasSubLinks);
 }

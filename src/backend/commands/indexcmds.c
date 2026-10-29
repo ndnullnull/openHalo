@@ -43,6 +43,7 @@
 #include "commands/event_trigger.h"
 #include "commands/progress.h"
 #include "commands/tablecmds.h"
+#include "commands/mysql/mys_tablecmds.h"
 #include "commands/tablespace.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
@@ -52,6 +53,7 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
 #include "parser/parse_utilcmd.h"
+#include "parser/parserapi.h"
 #include "partitioning/partdesc.h"
 #include "pgstat.h"
 #include "rewrite/rewriteManip.h"
@@ -833,6 +835,9 @@ DefineIndex(Oid tableId,
 											stmt->excludeOpNames,
 											stmt->primary,
 											stmt->isconstraint);
+	else if (parserengine && parserengine->compat_mode == MYSQL_COMPAT_MODE &&
+			 check_rights)
+		indexRelationName = mysCheckIndexName(tableId, indexRelationName);
 
 	/*
 	 * look up the access method, verify it can handle the requested features

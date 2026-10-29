@@ -59,6 +59,7 @@
 #include "commands/comment.h"
 #include "commands/defrem.h"
 #include "commands/event_trigger.h"
+#include "commands/mysql/mys_tablecmds.h"
 #include "commands/sequence.h"
 #include "commands/tablecmds.h"
 #include "commands/tablespace.h"
@@ -82,6 +83,7 @@
 #include "parser/parse_type.h"
 #include "parser/parse_utilcmd.h"
 #include "parser/parser.h"
+#include "parser/parserapi.h"
 #include "partitioning/partbounds.h"
 #include "partitioning/partdesc.h"
 #include "pgstat.h"
@@ -634,6 +636,7 @@ static void GetForeignKeyCheckTriggers(Relation trigrel,
 static void ATExecDropConstraint(Relation rel, const char *constrName,
 								 DropBehavior behavior, bool recurse,
 								 bool missing_ok, LOCKMODE lockmode);
+static void ATExecMySQLDrop(Relation rel, AlterTableCmd *cmd, LOCKMODE lockmode);
 static ObjectAddress dropconstraint_internal(Relation rel,
 											 HeapTuple constraintTup, DropBehavior behavior,
 											 bool recurse, bool recursing,
@@ -4637,6 +4640,8 @@ AlterTableGetLockLevel(List *cmds)
 			case AT_SetAccessMethod:	/* must rewrite heap */
 			case AT_SetTableSpace:	/* must rewrite heap */
 			case AT_AlterColumnType:	/* must rewrite heap */
+			case AT_ModifyColumn:	/* MySQL complete column definition */
+			case AT_ChangeColumn:	/* definition and column name */
 				cmd_lockmode = AccessExclusiveLock;
 				break;
 
@@ -4657,6 +4662,10 @@ AlterTableGetLockLevel(List *cmds)
 				 * CloneFkReferenced.
 				 */
 			case AT_DropConstraint: /* as DROP INDEX */
+			case AT_DropPrimaryKey:
+			case AT_DropIndex:
+			case AT_DropForeignKey:
+			case AT_DropCheck:
 			case AT_DropNotNull:	/* may change some SQL plans */
 				cmd_lockmode = AccessExclusiveLock;
 				break;
@@ -5112,12 +5121,17 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			pass = AT_PASS_ADD_INDEXCONSTR;
 			break;
 		case AT_DropConstraint: /* DROP CONSTRAINT */
+		case AT_DropPrimaryKey:
+		case AT_DropIndex:
+		case AT_DropForeignKey:
+		case AT_DropCheck:
 			ATSimplePermissions(cmd->subtype, rel,
 								ATT_TABLE | ATT_PARTITIONED_TABLE | ATT_FOREIGN_TABLE);
 			ATCheckPartitionsNotInUse(rel, lockmode);
 			/* Other recursion occurs during execution phase */
 			/* No command-specific prep needed except saving recurse flag */
-			if (recurse)
+			if (recurse && (cmd->subtype == AT_DropConstraint ||
+							cmd->subtype == AT_DropCheck))
 				cmd->recurse = true;
 			pass = AT_PASS_DROP;
 			break;
@@ -5134,6 +5148,60 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 								  lockmode, context);
 			pass = AT_PASS_ALTER_TYPE;
 			break;
+		case AT_ModifyColumn:
+		case AT_ChangeColumn:
+			{
+				ColumnDef  *def;
+				AlterTableCmd *nullcmd;
+				AlterTableCmd *defaultcmd;
+
+				ATSimplePermissions(cmd->subtype, rel,
+									ATT_TABLE | ATT_PARTITIONED_TABLE |
+									ATT_COMPOSITE_TYPE | ATT_FOREIGN_TABLE);
+				if (!recursing)
+				{
+					cmd = ATParseTransformCmd(wqueue, tab, rel, cmd, recurse,
+											 lockmode, AT_PASS_UNSET, context);
+					Assert(cmd != NULL);
+				}
+				def = castNode(ColumnDef, cmd->def);
+				cmd->num = get_attnum(RelationGetRelid(rel), cmd->name);
+				cmd->recurse = recurse;
+
+				/* Prepare conversion against the original row descriptor. */
+				ATPrepAlterColumnType(wqueue, tab, rel, recurse, recursing,
+									  cmd, lockmode, context);
+
+				/*
+				 * Reset the old default and rename in the DROP pass. All column
+				 * names must be final before ALTER TYPE deparses any shared
+				 * index/constraint definition for rebuilding.
+				 */
+				tab->subcmds[AT_PASS_DROP] =
+					lappend(tab->subcmds[AT_PASS_DROP], cmd);
+
+				/* PG18 owns NOT NULL catalog entries and inheritance. */
+				if (!recursing)
+				{
+					nullcmd = makeNode(AlterTableCmd);
+					nullcmd->subtype = def->is_not_null ? AT_SetNotNull : AT_DropNotNull;
+					nullcmd->name = def->colname;
+					nullcmd->recurse = recurse;
+					tab->subcmds[AT_PASS_COL_ATTRS] =
+						lappend(tab->subcmds[AT_PASS_COL_ATTRS], nullcmd);
+				}
+				if (def->raw_default)
+				{
+					defaultcmd = makeNode(AlterTableCmd);
+					defaultcmd->subtype = AT_ColumnDefault;
+					defaultcmd->name = def->colname;
+					defaultcmd->def = def->raw_default;
+					tab->subcmds[AT_PASS_ADD_OTHERCONSTR] =
+						lappend(tab->subcmds[AT_PASS_ADD_OTHERCONSTR], defaultcmd);
+				}
+				pass = AT_PASS_ALTER_TYPE;
+				break;
+			}
 		case AT_AlterColumnGenericOptions:
 			ATSimplePermissions(cmd->subtype, rel, ATT_FOREIGN_TABLE);
 			/* This command never recurses */
@@ -5507,14 +5575,64 @@ ATExecCmd(List **wqueue, AlteredTableInfo *tab,
 											   false, lockmode);
 			break;
 		case AT_DropConstraint: /* DROP CONSTRAINT */
-			ATExecDropConstraint(rel, cmd->name, cmd->behavior,
-								 cmd->recurse,
-								 cmd->missing_ok, lockmode);
+			if (parserengine && parserengine->compat_mode == MYSQL_COMPAT_MODE)
+				ATExecMySQLDrop(rel, cmd, lockmode);
+			else
+				ATExecDropConstraint(rel, cmd->name, cmd->behavior,
+								 cmd->recurse, cmd->missing_ok, lockmode);
+			break;
+		case AT_DropPrimaryKey:
+		case AT_DropForeignKey:
+		case AT_DropCheck:
+			ATExecMySQLDrop(rel, cmd, lockmode);
+			break;
+		case AT_DropIndex:
+			ATExecMySQLDrop(rel, cmd, lockmode);
+			/* DROP reports deleted objects through sql_drop, as in core. */
+			if (context && context->pstmt &&
+				IsA(context->pstmt->utilityStmt, DropStmt))
+				cmd = NULL;
 			break;
 		case AT_AlterColumnType:	/* ALTER COLUMN TYPE */
 			/* parse transformation was done earlier */
 			address = ATExecAlterColumnType(tab, rel, cmd, lockmode);
 			break;
+		case AT_ModifyColumn:
+		case AT_ChangeColumn:
+			{
+				ColumnDef  *def = castNode(ColumnDef, cmd->def);
+				char	   *colname = get_attname(RelationGetRelid(rel), cmd->num, false);
+
+				if (cur_pass == AT_PASS_DROP)
+				{
+					address = ATExecColumnDefault(rel, colname, NULL, lockmode);
+					CommandCounterIncrement();
+					if (strcmp(colname, def->colname) != 0)
+						renameatt_internal(RelationGetRelid(rel), colname,
+										   def->colname, cmd->recurse, false,
+										   0, DROP_RESTRICT);
+				}
+				else
+				{
+					AlterTableCmd typecmd = *cmd;
+					Form_pg_attribute attribute = TupleDescAttr(RelationGetDescr(rel), cmd->num - 1);
+					Oid			targettype;
+					int32		targetmod;
+
+					Assert(cur_pass == AT_PASS_ALTER_TYPE);
+					typenameTypeIdAndMod(NULL, def->typeName, &targettype, &targetmod);
+					if (attribute->atttypid == targettype && attribute->atttypmod == targetmod &&
+						attribute->attcollation == GetColumnDefCollation(NULL, def, targettype))
+						ObjectAddressSubSet(address, RelationRelationId,
+											RelationGetRelid(rel), cmd->num);
+					else
+					{
+						typecmd.name = colname;
+						address = ATExecAlterColumnType(tab, rel, &typecmd, lockmode);
+					}
+				}
+				break;
+			}
 		case AT_AlterColumnGenericOptions:	/* ALTER COLUMN OPTIONS */
 			address =
 				ATExecAlterColumnGenericOptions(rel, cmd->name,
@@ -5800,6 +5918,10 @@ ATParseTransformCmd(List **wqueue, AlteredTableInfo *tab, Relation rel,
 				/* This command never recurses */
 				/* No command-specific prep needed */
 				pass = AT_PASS_MISC;
+				break;
+			case AT_SetNotNull:
+				cmd2->recurse = recurse;
+				pass = AT_PASS_COL_ATTRS;
 				break;
 			default:
 				pass = cur_pass;
@@ -6646,6 +6768,14 @@ alter_table_type_to_string(AlterTableType cmdtype)
 			return "VALIDATE CONSTRAINT";
 		case AT_DropConstraint:
 			return "DROP CONSTRAINT";
+		case AT_DropPrimaryKey:
+			return "DROP PRIMARY KEY";
+		case AT_DropIndex:
+			return "DROP INDEX";
+		case AT_DropForeignKey:
+			return "DROP FOREIGN KEY";
+		case AT_DropCheck:
+			return "DROP CHECK";
 		case AT_ReAddComment:
 			return NULL;		/* not real grammar */
 		case AT_AlterColumnType:
@@ -9510,17 +9640,34 @@ ATPrepAddPrimaryKey(List **wqueue, Relation rel, AlterTableCmd *cmd,
 	Constraint *pkconstr;
 	List	   *children = NIL;
 	bool		got_children = false;
+	ListCell   *lc;
 
 	pkconstr = castNode(Constraint, cmd->def);
 	if (pkconstr->contype != CONSTR_PRIMARY)
 		return;
 
 	/* Verify that columns are not-null, or request that they be made so */
-	foreach_node(String, column, pkconstr->keys)
+	foreach(lc, pkconstr->keys)
 	{
+		Node	   *key = lfirst(lc);
+		String	   *column;
 		AlterTableCmd *newcmd;
 		Constraint *nnconstr;
 		HeapTuple	tuple;
+
+		/* MySQL index syntax carries column names inside IndexElem nodes. */
+		if (IsA(key, IndexElem))
+		{
+			IndexElem  *element = castNode(IndexElem, key);
+
+			if (element->expr || !element->name)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("primary keys cannot contain expressions")));
+			column = makeString(element->name);
+		}
+		else
+			column = castNode(String, key);
 
 		/*
 		 * First check if a suitable constraint exists.  If it does, we don't
@@ -14024,6 +14171,133 @@ createForeignKeyCheckTriggers(Oid myRelOid, Oid refRelOid,
 										  parentUpdTrigger, false);
 }
 
+/* Keep the outer DROP INDEX command tag and its PG18 event-trigger scope. */
+void
+mysDropIndexOnTable(DropStmt *stmt)
+{
+	AlterTableStmt *alter = makeNode(AlterTableStmt);
+	AlterTableCmd *cmd = makeNode(AlterTableCmd);
+	AlterTableUtilityContext context = {0};
+
+	if (stmt->removeType != OBJECT_INDEX || stmt->concurrent ||
+		list_length(stmt->objects) != 1 ||
+		list_length(linitial_node(List, stmt->objects)) != 1)
+		ereport(ERROR,
+				errcode(ERRCODE_SYNTAX_ERROR),
+				errmsg("DROP INDEX ... ON requires one unqualified index name"));
+	cmd->subtype = AT_DropIndex;
+	cmd->name = strVal(linitial(linitial_node(List, stmt->objects)));
+	cmd->behavior = stmt->behavior;
+	cmd->missing_ok = stmt->missing_ok;
+	alter->relation = stmt->mysql_table;
+	alter->cmds = list_make1(cmd);
+	alter->objtype = OBJECT_TABLE;
+	alter->missing_ok = stmt->missing_ok;
+	context.relid = AlterTableLookupRelation(alter, AccessExclusiveLock);
+	if (!OidIsValid(context.relid))
+		return;
+	context.pstmt = makeNode(PlannedStmt);
+	context.pstmt->commandType = CMD_UTILITY;
+	context.pstmt->utilityStmt = (Node *) stmt;
+	/* DROP generates no additional utility commands or parse transforms. */
+	AlterTable(alter, AccessExclusiveLock, &context);
+}
+
+/* Resolve MySQL's typed DROP forms, then use PG18's dependency machinery. */
+static void
+ATExecMySQLDrop(Relation rel, AlterTableCmd *cmd, LOCKMODE lockmode)
+{
+	Oid			conoid = InvalidOid;
+	Oid			indexoid = InvalidOid;
+	char	   *name = cmd->name;
+	char		expected = '\0';
+
+	if (cmd->subtype == AT_DropPrimaryKey)
+	{
+		indexoid = RelationGetPrimaryKeyIndex(rel, true);
+		if (OidIsValid(indexoid))
+			conoid = get_index_constraint(indexoid);
+		name = conoid ? get_constraint_name(conoid) : "primary key";
+		expected = CONSTRAINT_PRIMARY;
+	}
+	else if (cmd->subtype == AT_DropIndex)
+	{
+		name = mysCheckIndexName(RelationGetRelid(rel), cmd->name);
+		indexoid = get_relname_relid(name, RelationGetNamespace(rel));
+		if (!OidIsValid(indexoid) && pg_strcasecmp(cmd->name, "PRIMARY") == 0)
+			indexoid = RelationGetPrimaryKeyIndex(rel, true);
+		if (!OidIsValid(indexoid) ||
+			IndexGetRelation(indexoid, true) != RelationGetRelid(rel))
+		{
+			if (cmd->missing_ok)
+			{
+				ereport(NOTICE,
+						errmsg("index \"%s\" on table \"%s\" does not exist, skipping",
+							   cmd->name, RelationGetRelationName(rel)));
+				return;
+			}
+			ereport(ERROR,
+					errcode(ERRCODE_UNDEFINED_OBJECT),
+					errmsg("index \"%s\" on table \"%s\" does not exist",
+						   cmd->name, RelationGetRelationName(rel)));
+		}
+		conoid = get_index_constraint(indexoid);
+		if (!OidIsValid(conoid))
+		{
+			ObjectAddress address;
+
+			mysCheckAutoIncIndexDrop(rel, indexoid);
+			ObjectAddressSet(address, RelationRelationId, indexoid);
+			performDeletion(&address, cmd->behavior, 0);
+			return;
+		}
+		name = get_constraint_name(conoid);
+	}
+	else
+	{
+		conoid = get_relation_constraint_oid(RelationGetRelid(rel), name, true);
+		if (cmd->subtype == AT_DropForeignKey)
+			expected = CONSTRAINT_FOREIGN;
+		else if (cmd->subtype == AT_DropCheck)
+			expected = CONSTRAINT_CHECK;
+		else if (!OidIsValid(conoid))
+		{
+			/* A named UNIQUE/PRIMARY key may have an internal index name. */
+			char	   *idxname = mysCheckIndexName(RelationGetRelid(rel), name);
+			Oid			idxoid = get_relname_relid(idxname, RelationGetNamespace(rel));
+
+			if (OidIsValid(idxoid) && IndexGetRelation(idxoid, true) == RelationGetRelid(rel))
+				conoid = get_index_constraint(idxoid);
+			pfree(idxname);
+			if (OidIsValid(conoid))
+				name = get_constraint_name(conoid);
+		}
+	}
+
+	if (OidIsValid(conoid))
+	{
+		HeapTuple	tuple = SearchSysCache1(CONSTROID, ObjectIdGetDatum(conoid));
+		Form_pg_constraint con;
+
+		if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for constraint %u", conoid);
+		con = (Form_pg_constraint) GETSTRUCT(tuple);
+		if (expected && con->contype != expected)
+			ereport(ERROR,
+					errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					errmsg("constraint \"%s\" is not a %s", name,
+						   expected == CONSTRAINT_FOREIGN ? "foreign key" :
+						   expected == CONSTRAINT_CHECK ? "check constraint" : "primary key"));
+		if (con->contype == CONSTRAINT_PRIMARY || con->contype == CONSTRAINT_UNIQUE ||
+			con->contype == CONSTRAINT_EXCLUSION)
+			mysCheckAutoIncIndexDrop(rel, con->conindid);
+		ReleaseSysCache(tuple);
+	}
+
+	ATExecDropConstraint(rel, name, cmd->behavior, cmd->recurse,
+						 cmd->missing_ok, lockmode);
+}
+
 /*
  * ALTER TABLE DROP CONSTRAINT
  *
@@ -14507,6 +14781,24 @@ ATPrepAlterColumnType(List **wqueue,
 										 attTup->atttypid, attTup->atttypmod,
 										 attTup->attcollation,
 										 0);
+
+			/* MySQL rebuilds an ENUM definition using its textual labels. */
+			if ((cmd->subtype == AT_ModifyColumn || cmd->subtype == AT_ChangeColumn) &&
+				attTup->atttypid != targettype &&
+				get_typtype(attTup->atttypid) == TYPTYPE_ENUM &&
+				get_typtype(targettype) == TYPTYPE_ENUM)
+			{
+				transform = coerce_to_target_type(pstate, transform,
+												  attTup->atttypid, TEXTOID, -1,
+												  COERCION_ASSIGNMENT,
+												  COERCE_IMPLICIT_CAST, -1);
+				Assert(transform != NULL);
+				transform = coerce_to_target_type(pstate, transform, TEXTOID,
+												  targettype, targettypmod,
+												  COERCION_EXPLICIT,
+												  COERCE_EXPLICIT_CAST, -1);
+				Assert(transform != NULL);
+			}
 		}
 
 		transform = coerce_to_target_type(pstate,
@@ -14859,7 +15151,7 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 	 * the info before executing ALTER TYPE, though, else the deparser will
 	 * get confused.
 	 */
-	RememberAllDependentForRebuilding(tab, AT_AlterColumnType, rel, attnum, colName);
+	RememberAllDependentForRebuilding(tab, cmd->subtype, rel, attnum, colName);
 
 	/*
 	 * Now scan for dependencies of this column on other things.  The only
@@ -15068,8 +15360,11 @@ RememberAllDependentForRebuilding(AlteredTableInfo *tab, AlterTableType subtype,
 	ScanKeyData key[3];
 	SysScanDesc scan;
 	HeapTuple	depTup;
+	bool		mysql_column_change = (subtype == AT_ModifyColumn ||
+									   subtype == AT_ChangeColumn);
+	bool		is_type_change = (subtype == AT_AlterColumnType || mysql_column_change);
 
-	Assert(subtype == AT_AlterColumnType || subtype == AT_SetExpression);
+	Assert(is_type_change || subtype == AT_SetExpression);
 
 	depRel = table_open(DependRelationId, RowExclusiveLock);
 
@@ -15132,6 +15427,21 @@ RememberAllDependentForRebuilding(AlteredTableInfo *tab, AlterTableType subtype,
 				RememberConstraintForRebuilding(foundObject.objectId, tab);
 				break;
 
+			case TypeRelationId:
+				/*
+				 * An OpenHalo ENUM/SET domain can be owned by this column.
+				 * Its own dependent objects are still checked by the final
+				 * DROP RESTRICT; do not ignore unrelated type dependencies.
+				 */
+				if (mysql_column_change && foundDep->deptype == DEPENDENCY_AUTO &&
+					foundObject.objectId == TupleDescAttr(RelationGetDescr(rel), attnum - 1)->atttypid &&
+					(get_typtype(foundObject.objectId) == TYPTYPE_ENUM ||
+					 get_typtype(foundObject.objectId) == TYPTYPE_DOMAIN))
+					break;
+				elog(ERROR, "unexpected object depending on column: %s",
+					 getObjectDescription(&foundObject, false));
+				break;
+
 			case ProcedureRelationId:
 
 				/*
@@ -15144,7 +15454,7 @@ RememberAllDependentForRebuilding(AlteredTableInfo *tab, AlterTableType subtype,
 				 * This is only a problem for AT_AlterColumnType, not
 				 * AT_SetExpression.
 				 */
-				if (subtype == AT_AlterColumnType)
+				if (is_type_change)
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("cannot alter type of a column used by a function or procedure"),
@@ -15159,7 +15469,7 @@ RememberAllDependentForRebuilding(AlteredTableInfo *tab, AlterTableType subtype,
 				 * View/rule bodies have pretty much the same issues as
 				 * function bodies.  FIXME someday.
 				 */
-				if (subtype == AT_AlterColumnType)
+				if (is_type_change)
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("cannot alter type of a column used by a view or rule"),
@@ -15179,7 +15489,7 @@ RememberAllDependentForRebuilding(AlteredTableInfo *tab, AlterTableType subtype,
 				 * issues as above.  Since we can't easily tell which case
 				 * applies, we punt for both.  FIXME someday.
 				 */
-				if (subtype == AT_AlterColumnType)
+				if (is_type_change)
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("cannot alter type of a column used in a trigger definition"),
@@ -15198,7 +15508,7 @@ RememberAllDependentForRebuilding(AlteredTableInfo *tab, AlterTableType subtype,
 				 * easy enough to remove and recreate the policy; still, FIXME
 				 * someday.
 				 */
-				if (subtype == AT_AlterColumnType)
+				if (is_type_change)
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("cannot alter type of a column used in a policy definition"),
@@ -15229,7 +15539,7 @@ RememberAllDependentForRebuilding(AlteredTableInfo *tab, AlterTableType subtype,
 						 * by SQL standard, so just punt for now.  It might be
 						 * doable with some thinking and effort.
 						 */
-						if (subtype == AT_AlterColumnType)
+						if (is_type_change)
 							ereport(ERROR,
 									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 									 errmsg("cannot alter type of a column used by a generated column"),
@@ -15257,7 +15567,7 @@ RememberAllDependentForRebuilding(AlteredTableInfo *tab, AlterTableType subtype,
 				 * Column reference in a PUBLICATION ... FOR TABLE ... WHERE
 				 * clause.  Same issues as above.  FIXME someday.
 				 */
-				if (subtype == AT_AlterColumnType)
+				if (is_type_change)
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("cannot alter type of a column used by a publication WHERE clause"),
@@ -15661,8 +15971,32 @@ ATPostAlterTypeCleanup(List **wqueue, AlteredTableInfo *tab, LOCKMODE lockmode)
  * This might fail if, for example, you have a WHERE clause that uses an
  * operator that's not available for the new column type.
  */
+static void ATPostAlterTypeParseInternal(Oid oldId, Oid oldRelId, Oid refRelId,
+										Oid ownerId, char *cmd, List **wqueue,
+										LOCKMODE lockmode, bool rewrite);
+
 static void
 ATPostAlterTypeParse(Oid oldId, Oid oldRelId, Oid refRelId, Oid ownerId,
+					char *cmd, List **wqueue, LOCKMODE lockmode, bool rewrite)
+{
+	const ParserRoutine *saved_parser = parserengine;
+
+	/* Both parsing and analysis of deparsed catalog SQL belong to PG. */
+	parserengine = GetStandardParserEngine();
+	PG_TRY();
+	{
+		ATPostAlterTypeParseInternal(oldId, oldRelId, refRelId, ownerId,
+									cmd, wqueue, lockmode, rewrite);
+	}
+	PG_FINALLY();
+	{
+		parserengine = saved_parser;
+	}
+	PG_END_TRY();
+}
+
+static void
+ATPostAlterTypeParseInternal(Oid oldId, Oid oldRelId, Oid refRelId, Oid ownerId,
 					 char *cmd, List **wqueue, LOCKMODE lockmode,
 					 bool rewrite)
 {

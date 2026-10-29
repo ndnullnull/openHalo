@@ -14,6 +14,7 @@
  */
 
 #include "postgres.h"
+#include "adapter/mysql/adapter.h"
 
 #include <unistd.h>
 
@@ -175,6 +176,13 @@ BackendInitialize(ClientSocket *client_sock, CAC_state cac)
 	 */
 	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 	port = MyProcPort = pq_init(client_sock);
+	if (client_sock->protocol_kind == PROTOCOL_MYSQL)
+	{
+		port->protocol_handler = getMysProtocolHandler();
+		port->protocol_handler->init();
+	}
+	else if (client_sock->protocol_kind != PROTOCOL_POSTGRESQL)
+		elog(FATAL, "unknown client protocol kind");
 	MemoryContextSwitchTo(oldcontext);
 
 	whereToSendOutput = DestRemote; /* now safe to ereport to client */
@@ -285,13 +293,16 @@ BackendInitialize(ClientSocket *client_sock, CAC_state cac)
 	enable_timeout_after(STARTUP_PACKET_TIMEOUT, AuthenticationTimeout * 1000);
 
 	/* Handle direct SSL handshake */
-	status = ProcessSSLStartup(port);
+	if (port->protocol_handler)
+		status = port->protocol_handler->start(port);
+	else
+		status = ProcessSSLStartup(port);
 
 	/*
 	 * Receive the startup packet (which might turn out to be a cancel request
 	 * packet).
 	 */
-	if (status == STATUS_OK)
+	if (status == STATUS_OK && port->protocol_handler == NULL)
 		status = ProcessStartupPacket(port, false, false);
 
 	/*

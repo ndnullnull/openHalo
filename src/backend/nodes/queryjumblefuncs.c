@@ -747,6 +747,8 @@ _jumbleVariableSetStmt(JumbleState *jstate, Node *node)
 
 	JUMBLE_FIELD(kind);
 	JUMBLE_STRING(name);
+	if (expr->mysql_use)
+		JUMBLE_FIELD(mysql_use);
 
 	/*
 	 * Account for the list of arguments in query jumbling only if told by the

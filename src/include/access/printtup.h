@@ -16,6 +16,28 @@
 
 #include "utils/portal.h"
 
+/* Shared receiver storage for built-in wire protocol adapters. */
+typedef struct
+{								/* Per-attribute information */
+	Oid			typoutput;		/* Oid for the type's text output fn */
+	Oid			typsend;		/* Oid for the type's binary output fn */
+	bool		typisvarlena;	/* is it varlena (ie possibly toastable)? */
+	int16		format;			/* format code for this column */
+	FmgrInfo	finfo;			/* Precomputed call info for output fn */
+} PrinttupAttrInfo;
+
+typedef struct
+{
+	DestReceiver pub;			/* publicly-known function pointers */
+	Portal		portal;			/* the Portal we are printing from */
+	bool		sendDescrip;	/* send RowDescription at startup? */
+	TupleDesc	attrinfo;		/* The attr info we are set up for */
+	int			nattrs;
+	PrinttupAttrInfo *myinfo;	/* Cached info about each attr */
+	StringInfoData buf;			/* output buffer (*not* in tmpcontext) */
+	MemoryContext tmpcontext;	/* Memory context for per-row workspace */
+} DR_printtup;
+
 extern DestReceiver *printtup_create_DR(CommandDest dest);
 
 extern void SetRemoteDestReceiverParams(DestReceiver *self, Portal portal);

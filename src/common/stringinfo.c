@@ -44,6 +44,7 @@ initStringInfoInternal(StringInfo str, int initsize)
 
 	str->data = (char *) palloc(initsize);
 	str->maxlen = initsize;
+	str->offset = 0;
 	resetStringInfo(str);
 }
 

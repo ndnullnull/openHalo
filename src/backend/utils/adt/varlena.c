@@ -42,6 +42,8 @@
 #include "utils/pg_locale.h"
 #include "utils/sortsupport.h"
 #include "utils/varlena.h"
+#include "utils/mysql/mys_compat.h"
+#include "adapter/mysql/adapter.h"
 
 
 /* GUC variable */
@@ -3583,6 +3585,7 @@ SplitIdentifierString(char *rawstring, char separator,
 {
 	char	   *nextp = rawstring;
 	bool		done = false;
+	bool		mysql = IsMySQLCompatMode();
 
 	*namelist = NIL;
 
@@ -3598,16 +3601,19 @@ SplitIdentifierString(char *rawstring, char separator,
 		char	   *curname;
 		char	   *endp;
 
-		if (*nextp == '"')
+		if (*nextp == '"' || (mysql && *nextp == '`'))
 		{
+			char		quote = *nextp;
+
+			/* Native GUCs still use double-quoted identifiers in MySQL sessions. */
 			/* Quoted name --- collapse quote-quote pairs, no downcasing */
 			curname = nextp + 1;
 			for (;;)
 			{
-				endp = strchr(nextp + 1, '"');
+				endp = strchr(nextp + 1, quote);
 				if (endp == NULL)
 					return false;	/* mismatched quotes */
-				if (endp[1] != '"')
+				if (endp[1] != quote)
 					break;		/* found end of quoted name */
 				/* Collapse adjacent quotes into one quote, and look again */
 				memmove(endp, endp + 1, strlen(endp));
@@ -4265,6 +4271,7 @@ replace_text(PG_FUNCTION_ARGS)
 	char	   *start_ptr;
 	StringInfoData str;
 	bool		found;
+	Oid			collid = PG_GET_COLLATION();
 
 	src_text_len = VARSIZE_ANY_EXHDR(src_text);
 	from_sub_text_len = VARSIZE_ANY_EXHDR(from_sub_text);
@@ -4275,7 +4282,10 @@ replace_text(PG_FUNCTION_ARGS)
 		PG_RETURN_TEXT_P(src_text);
 	}
 
-	text_position_setup(src_text, from_sub_text, PG_GET_COLLATION(), &state);
+	/* MySQL REPLACE is bytewise even under its case-insensitive collation. */
+	if (IsMySQLCompatMode() && collid == caseInsensitiveId)
+		collid = C_COLLATION_OID;
+	text_position_setup(src_text, from_sub_text, collid, &state);
 
 	found = text_position_next(&state);
 
@@ -4860,6 +4870,10 @@ split_text(FunctionCallInfo fcinfo, SplitTextOutputData *tstate)
 	/* when input string is NULL, then result is NULL too */
 	if (PG_ARGISNULL(0))
 		return false;
+
+	/* Preserve the legacy case-sensitive separator and null-string rules. */
+	if (IsMySQLCompatMode() && collation == caseInsensitiveId)
+		collation = C_COLLATION_OID;
 
 	inputstring = PG_GETARG_TEXT_PP(0);
 

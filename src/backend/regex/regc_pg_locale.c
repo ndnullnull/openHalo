@@ -16,8 +16,10 @@
  */
 
 #include "catalog/pg_collation.h"
+#include "adapter/mysql/adapter.h"
 #include "common/unicode_case.h"
 #include "common/unicode_category.h"
+#include "utils/mysql/mys_compat.h"
 #include "utils/pg_locale.h"
 
 /*
@@ -229,6 +231,16 @@ pg_set_regex_collation(Oid collation)
 {
 	pg_locale_t locale = 0;
 	PG_Locale_Strategy strategy;
+
+	/*
+	 * The legacy MySQL REGEXP/RLIKE operators use the database's default
+	 * character classes, even when their text operands carry the built-in
+	 * case_insensitive collation.  REGEXP itself supplies REG_ICASE.  Keep
+	 * that behavior without weakening PG's checks for other collations or
+	 * changing the native protocol.  Do not hard-code the default OID.
+	 */
+	if (IsMySQLCompatMode() && collation == caseInsensitiveId)
+		collation = DEFAULT_COLLATION_OID;
 
 	if (!OidIsValid(collation))
 	{

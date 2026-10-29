@@ -16,13 +16,13 @@ BEGIN
  BEGIN
   BLOCK "040904B0"			// U.S. English, Unicode
   BEGIN
-   VALUE "CompanyName",      "PostgreSQL Global Development Group"
+   VALUE "CompanyName",      "Halo Tech Co.,Ltd."
    VALUE "FileDescription",  FILEDESC
    VALUE "FileVersion",      PG_VERSION
    VALUE "InternalName",     _INTERNAL_NAME_
-   VALUE "LegalCopyright", "Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group. Portions Copyright (c) 1994, Regents of the University of California."
+   VALUE "LegalCopyright", "Copyright (c) 2026, Halo Tech Co.,Ltd. All rights reserved. Copyright (c) 2026, openhalo.org All rights reserved. Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group. Portions Copyright (c) 1994, Regents of the University of California."
    VALUE "OriginalFileName", _ORIGINAL_NAME_
-   VALUE "ProductName",      "PostgreSQL"
+   VALUE "ProductName",      "openHalo"
    VALUE "ProductVersion",   PG_VERSION
   END
  END

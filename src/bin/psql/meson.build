@@ -63,6 +63,8 @@ psql = executable('psql',
 )
 bin_targets += psql
 
+install_data('hsql', install_dir: dir_bin, install_mode: 'rwxr-xr-x')
+
 install_data('psqlrc.sample',
   install_dir: dir_data,
 )

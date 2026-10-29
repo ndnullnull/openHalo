@@ -16,6 +16,8 @@
 #include "postgres.h"
 
 #include "access/printtup.h"
+#include "libpq/libpq-be.h"
+#include "miscadmin.h"
 #include "libpq/pqformat.h"
 #include "libpq/protocol.h"
 #include "tcop/pquery.h"
@@ -42,26 +44,38 @@ static void printtup_destroy(DestReceiver *self);
  * we are using for this column.
  * ----------------
  */
-typedef struct
-{								/* Per-attribute information */
-	Oid			typoutput;		/* Oid for the type's text output fn */
-	Oid			typsend;		/* Oid for the type's binary output fn */
-	bool		typisvarlena;	/* is it varlena (ie possibly toastable)? */
-	int16		format;			/* format code for this column */
-	FmgrInfo	finfo;			/* Precomputed call info for output fn */
-} PrinttupAttrInfo;
-
-typedef struct
+/* Keep the PG18 DestReceiver ABI.  Only protocol adapters need a command tag,
+ * which belongs to the receiver's portal, not to arbitrary executor receivers. */
+static CommandTag
+protocol_command_tag(DestReceiver *self)
 {
-	DestReceiver pub;			/* publicly-known function pointers */
-	Portal		portal;			/* the Portal we are printing from */
-	bool		sendDescrip;	/* send RowDescription at startup? */
-	TupleDesc	attrinfo;		/* The attr info we are set up for */
-	int			nattrs;
-	PrinttupAttrInfo *myinfo;	/* Cached info about each attr */
-	StringInfoData buf;			/* output buffer (*not* in tmpcontext) */
-	MemoryContext tmpcontext;	/* Memory context for per-row workspace */
-} DR_printtup;
+	DR_printtup *state = (DR_printtup *) self;
+
+	if (state->portal == NULL)
+		elog(ERROR, "protocol tuple receiver has no portal");
+	/* EXECUTE can materialize INSERT RETURNING in a utility tuplestore.
+	 * FillPortalStore has already recorded the underlying command before
+	 * these callbacks read the store.  MySQL must hide its internal returned
+	 * AUTO_INCREMENT value while still emitting the INSERT OK/last-id. */
+	if (state->portal->commandTag == CMDTAG_EXECUTE &&
+		state->portal->qc.commandTag != CMDTAG_UNKNOWN)
+		return state->portal->qc.commandTag;
+	return state->portal->commandTag;
+}
+
+static bool
+protocol_receive(TupleTableSlot *slot, DestReceiver *self)
+{
+	return MyProcPort->protocol_handler->printtup(slot, self,
+												protocol_command_tag(self));
+}
+
+static void
+protocol_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
+{
+	MyProcPort->protocol_handler->printtup_startup(self, operation, typeinfo,
+													protocol_command_tag(self));
+}
 
 /* ----------------
  *		Initialize: create a DestReceiver for printtup
@@ -77,6 +91,20 @@ printtup_create_DR(CommandDest dest)
 	self->pub.rShutdown = printtup_shutdown;
 	self->pub.rDestroy = printtup_destroy;
 	self->pub.mydest = dest;
+
+	if (MyProcPort && MyProcPort->protocol_handler &&
+		MyProcPort->protocol_handler->printtup)
+	{
+		const ProtocolInterface *protocol = MyProcPort->protocol_handler;
+
+		if (!protocol->printtup_startup || !protocol->printtup_shutdown ||
+			!protocol->printtup_destroy)
+			elog(ERROR, "incomplete protocol tuple receiver callbacks");
+		self->pub.receiveSlot = protocol_receive;
+		self->pub.rStartup = protocol_startup;
+		self->pub.rShutdown = protocol->printtup_shutdown;
+		self->pub.rDestroy = protocol->printtup_destroy;
+	}
 
 	/*
 	 * Send T message automatically if DestRemote, but not if

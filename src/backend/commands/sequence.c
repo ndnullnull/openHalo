@@ -109,7 +109,7 @@ static void init_params(ParseState *pstate, List *options, bool for_identity,
 						Form_pg_sequence_data seqdataform,
 						bool *need_seq_rewrite,
 						List **owned_by);
-static void do_setval(Oid relid, int64 next, bool iscalled);
+static void do_setval(Oid relid, int64 next, bool iscalled, bool advance_only);
 static void process_owned_by(Relation seqrel, List *owned_by, bool for_identity);
 
 
@@ -942,7 +942,7 @@ lastval(PG_FUNCTION_ARGS)
  * sequence.
  */
 static void
-do_setval(Oid relid, int64 next, bool iscalled)
+do_setval(Oid relid, int64 next, bool iscalled, bool advance_only)
 {
 	SeqTable	elm;
 	Relation	seqrel;
@@ -957,7 +957,8 @@ do_setval(Oid relid, int64 next, bool iscalled)
 	/* open and lock sequence */
 	init_sequence(relid, &elm, &seqrel);
 
-	if (pg_class_aclcheck(elm->relid, GetUserId(), ACL_UPDATE) != ACLCHECK_OK)
+	if (pg_class_aclcheck(elm->relid, GetUserId(),
+						  advance_only ? (ACL_USAGE | ACL_UPDATE) : ACL_UPDATE) != ACLCHECK_OK)
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("permission denied for sequence %s",
@@ -984,6 +985,17 @@ do_setval(Oid relid, int64 next, bool iscalled)
 
 	/* lock page buffer and read tuple */
 	seq = read_seq_tuple(seqrel, &buf, &seqdatatuple);
+
+	/* Check and advance atomically under the sequence page lock. */
+	if (advance_only &&
+		(seq->last_value > next ||
+		 (seq->last_value == next && (seq->is_called || !iscalled))))
+	{
+		UnlockReleaseBuffer(buf);
+		sequence_close(seqrel, NoLock);
+		return;
+	}
+
 
 	if ((next < minv) || (next > maxv))
 		ereport(ERROR,
@@ -1051,7 +1063,7 @@ setval_oid(PG_FUNCTION_ARGS)
 	Oid			relid = PG_GETARG_OID(0);
 	int64		next = PG_GETARG_INT64(1);
 
-	do_setval(relid, next, true);
+	do_setval(relid, next, true, false);
 
 	PG_RETURN_INT64(next);
 }
@@ -1067,7 +1079,7 @@ setval3_oid(PG_FUNCTION_ARGS)
 	int64		next = PG_GETARG_INT64(1);
 	bool		iscalled = PG_GETARG_BOOL(2);
 
-	do_setval(relid, next, iscalled);
+	do_setval(relid, next, iscalled, false);
 
 	PG_RETURN_INT64(next);
 }
@@ -1963,4 +1975,11 @@ seq_mask(char *page, BlockNumber blkno)
 	mask_page_lsn_and_checksum(page);
 
 	mask_unused_space(page);
+}
+
+/* OpenHalo AUTO_INCREMENT only moves an existing sequence forward. */
+void
+mys_setval3_oid(Oid relid, int64 next, bool iscalled)
+{
+	do_setval(relid, next, iscalled, true);
 }

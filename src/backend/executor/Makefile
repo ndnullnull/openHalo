@@ -13,6 +13,9 @@ top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
 OBJS = \
+	executor_engine.o \
+	executor_ep.o \
+	mys_executor.o \
 	execAmi.o \
 	execAsync.o \
 	execCurrent.o \

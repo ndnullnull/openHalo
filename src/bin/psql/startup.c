@@ -1,6 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
+ * Portions Copyright (c) 2021, Halo Tech Co.,Ltd.
  * Copyright (c) 2000-2025, PostgreSQL Global Development Group
  *
  * src/bin/psql/startup.c
@@ -843,7 +844,7 @@ process_psqlrc_file(char *filename)
 static void
 showVersion(void)
 {
-	puts("psql (PostgreSQL) " PG_VERSION);
+	puts("psql (Halo) " PG_VERSION_PREFIX PG_VERSION);
 }
 
 

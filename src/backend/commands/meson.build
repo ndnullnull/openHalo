@@ -1,6 +1,7 @@
 # Copyright (c) 2022-2025, PostgreSQL Global Development Group
 
 backend_sources += files(
+  'mysql/mys_createas.c',
   'aggregatecmds.c',
   'alter.c',
   'amcmds.c',
@@ -54,3 +55,7 @@ backend_sources += files(
   'variable.c',
   'view.c',
 )
+
+backend_sources += files('mysql/mys_uservar.c')
+
+backend_sources += files('mysql/mys_ddl_helpers.c')

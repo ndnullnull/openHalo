@@ -21,6 +21,8 @@
 #include "storage/procarray.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
+#include "utils/catcache.h"
+#include "utils/mysql/mys_compat.h"
 #include "utils/fmgroids.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
@@ -113,9 +115,19 @@ enum_in(PG_FUNCTION_ARGS)
 	Node	   *escontext = fcinfo->context;
 	Oid			enumoid;
 	HeapTuple	tup;
+	char	   *lookup_name = name;
+	size_t		name_len = strlen(name);
+	bool		mysql = IsMySQLCompatMode();
+
+	if (mysql)
+	{
+		while (name_len > 0 && name[name_len - 1] == ' ')
+			name_len--;
+		lookup_name = pnstrdup(name, name_len);
+	}
 
 	/* must check length to prevent Assert failure within SearchSysCache */
-	if (strlen(name) >= NAMEDATALEN)
+	if (name_len >= NAMEDATALEN)
 		ereturn(escontext, (Datum) 0,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid input value for enum %s: \"%s\"",
@@ -124,7 +136,29 @@ enum_in(PG_FUNCTION_ARGS)
 
 	tup = SearchSysCache2(ENUMTYPOIDNAME,
 						  ObjectIdGetDatum(enumtypoid),
-						  CStringGetDatum(name));
+						  CStringGetDatum(lookup_name));
+	if (!HeapTupleIsValid(tup) && mysql)
+	{
+		CatCList *labels = SearchSysCacheList1(ENUMTYPOIDNAME,
+												 ObjectIdGetDatum(enumtypoid));
+
+		for (int i = 0; i < labels->n_members; i++)
+		{
+			HeapTuple candidate = &labels->members[i]->tuple;
+			Form_pg_enum label = (Form_pg_enum) GETSTRUCT(candidate);
+
+			if (pg_strcasecmp(NameStr(label->enumlabel), lookup_name) == 0)
+			{
+				/* Retain PG18's uncommitted-label protection on the actual
+				 * match, including case-insensitive and trimmed input. */
+				check_safe_enum_use(candidate);
+				enumoid = label->oid;
+				ReleaseSysCacheList(labels);
+				PG_RETURN_OID(enumoid);
+			}
+		}
+		ReleaseSysCacheList(labels);
+	}
 	if (!HeapTupleIsValid(tup))
 		ereturn(escontext, (Datum) 0,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),

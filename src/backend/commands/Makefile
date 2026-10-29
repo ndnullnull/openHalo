@@ -13,6 +13,9 @@ top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
 OBJS = \
+	mys_createas.o \
+	mys_ddl_helpers.o \
+	mys_uservar.o \
 	aggregatecmds.o \
 	alter.o \
 	amcmds.o \
@@ -67,3 +70,8 @@ OBJS = \
 	view.o
 
 include $(top_srcdir)/src/backend/common.mk
+
+
+
+# Use the standard compilation rule, including header dependency tracking.
+vpath mys_%.c $(srcdir)/mysql

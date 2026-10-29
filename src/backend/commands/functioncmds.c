@@ -1298,7 +1298,8 @@ CreateFunction(ParseState *pstate, CreateFunctionStmt *stmt)
 						   PointerGetDatum(proconfig),
 						   prosupport,
 						   procost,
-						   prorows);
+						   prorows,
+						   stmt->proaccess ? stmt->proaccess : NON_PACKAGE_MEMBER);
 }
 
 /*

@@ -556,7 +556,7 @@ main(int argc, char **argv)
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
-			puts("pg_dump (PostgreSQL) " PG_VERSION);
+			puts("pg_dump (Halo) " PG_VERSION_PREFIX PG_VERSION);
 			exit_nicely(0);
 		}
 	}
@@ -9159,7 +9159,12 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
 						 "a.attlen,\n"
 						 "a.attalign,\n"
 						 "a.attislocal,\n"
-						 "pg_catalog.format_type(t.oid, a.atttypmod) AS atttypname,\n"
+						 "CASE "
+						 " WHEN a.atttypmod=4 AND t.oid='pg_catalog.bpchar'::pg_catalog.regtype THEN 'pg_catalog.bpchar(0)' "
+						 " WHEN a.atttypmod=4 AND t.oid='pg_catalog.varchar'::pg_catalog.regtype THEN 'pg_catalog.varchar(0)' "
+						 " WHEN a.atttypmod=4 AND t.oid='pg_catalog.bpchar[]'::pg_catalog.regtype THEN 'pg_catalog.bpchar(0)[]' "
+						 " WHEN a.atttypmod=4 AND t.oid='pg_catalog.varchar[]'::pg_catalog.regtype THEN 'pg_catalog.varchar(0)[]' "
+						 " ELSE pg_catalog.format_type(t.oid, a.atttypmod) END AS atttypname,\n"
 						 "array_to_string(a.attoptions, ', ') AS attoptions,\n"
 						 "CASE WHEN a.attcollation <> t.typcollation "
 						 "THEN a.attcollation ELSE 0 END AS attcollation,\n"
@@ -12542,7 +12547,12 @@ dumpDomain(Archive *fout, const TypeInfo *tyinfo)
 							 "PREPARE dumpDomain(pg_catalog.oid) AS\n");
 
 		appendPQExpBufferStr(query, "SELECT t.typnotnull, "
-							 "pg_catalog.format_type(t.typbasetype, t.typtypmod) AS typdefn, "
+							 "CASE "
+							 " WHEN t.typtypmod=4 AND t.typbasetype='pg_catalog.bpchar'::pg_catalog.regtype THEN 'pg_catalog.bpchar(0)' "
+							 " WHEN t.typtypmod=4 AND t.typbasetype='pg_catalog.varchar'::pg_catalog.regtype THEN 'pg_catalog.varchar(0)' "
+							 " WHEN t.typtypmod=4 AND t.typbasetype='pg_catalog.bpchar[]'::pg_catalog.regtype THEN 'pg_catalog.bpchar(0)[]' "
+							 " WHEN t.typtypmod=4 AND t.typbasetype='pg_catalog.varchar[]'::pg_catalog.regtype THEN 'pg_catalog.varchar(0)[]' "
+							 " ELSE pg_catalog.format_type(t.typbasetype, t.typtypmod) END AS typdefn, "
 							 "pg_catalog.pg_get_expr(t.typdefaultbin, 'pg_catalog.pg_type'::pg_catalog.regclass) AS typdefaultbin, "
 							 "t.typdefault, "
 							 "CASE WHEN t.typcollation <> u.typcollation "
@@ -12777,7 +12787,12 @@ dumpCompositeType(Archive *fout, const TypeInfo *tyinfo)
 		appendPQExpBufferStr(query,
 							 "PREPARE dumpCompositeType(pg_catalog.oid) AS\n"
 							 "SELECT a.attname, a.attnum, "
-							 "pg_catalog.format_type(a.atttypid, a.atttypmod) AS atttypdefn, "
+							 "CASE "
+							 " WHEN a.atttypmod=4 AND a.atttypid='pg_catalog.bpchar'::pg_catalog.regtype THEN 'pg_catalog.bpchar(0)' "
+							 " WHEN a.atttypmod=4 AND a.atttypid='pg_catalog.varchar'::pg_catalog.regtype THEN 'pg_catalog.varchar(0)' "
+							 " WHEN a.atttypmod=4 AND a.atttypid='pg_catalog.bpchar[]'::pg_catalog.regtype THEN 'pg_catalog.bpchar(0)[]' "
+							 " WHEN a.atttypmod=4 AND a.atttypid='pg_catalog.varchar[]'::pg_catalog.regtype THEN 'pg_catalog.varchar(0)[]' "
+							 " ELSE pg_catalog.format_type(a.atttypid, a.atttypmod) END AS atttypdefn, "
 							 "a.attlen, a.attalign, a.attisdropped, "
 							 "CASE WHEN a.attcollation <> at.typcollation "
 							 "THEN a.attcollation ELSE 0 END AS attcollation "

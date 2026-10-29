@@ -15,6 +15,12 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "nodes/mysql/mys_parsenodes.h"
+#include "commands/mysql/mys_uservar.h"
+#include "adapter/mysql/adapter.h"
+#include "parser/parser.h"
+#include "mb/pg_wchar.h"
+#include "varatt.h"
 
 #include <limits.h>
 
@@ -64,6 +70,8 @@ PrepareQuery(ParseState *pstate, PrepareStmt *stmt,
 	Oid		   *argtypes = NULL;
 	int			nargs;
 	List	   *query_list;
+	const char *queryString = pstate->p_sourcetext;
+	bool mysql_prepare = IsA(stmt->query, String) || IsA(stmt->query, UserVarRef);
 
 	/*
 	 * Disallow empty-string statement name (conflicts with protocol-level
@@ -78,17 +86,43 @@ PrepareQuery(ParseState *pstate, PrepareStmt *stmt,
 	 * Need to wrap the contained statement in a RawStmt node to pass it to
 	 * parse analysis.
 	 */
-	rawstmt = makeNode(RawStmt);
-	rawstmt->stmt = stmt->query;
-	rawstmt->stmt_location = stmt_location;
-	rawstmt->stmt_len = stmt_len;
+	if (mysql_prepare)
+	{
+		List *statements;
+
+		if (IsA(stmt->query, String))
+			queryString = strVal(stmt->query);
+		else
+		{
+			bytea *value = mysGetUserVarValueInternal(((UserVarRef *) stmt->query)->userVarName);
+			if (value == NULL)
+				elog(ERROR, "prepared statement variable is NULL");
+			if (memchr(VARDATA_ANY(value), 0, VARSIZE_ANY_EXHDR(value)))
+				elog(ERROR, "prepared statement contains a zero byte");
+			pg_verify_mbstr(GetDatabaseEncoding(), VARDATA_ANY(value), VARSIZE_ANY_EXHDR(value), false);
+			queryString = pnstrdup(VARDATA_ANY(value), VARSIZE_ANY_EXHDR(value));
+		}
+		statements = raw_parser(queryString, RAW_PARSE_DEFAULT);
+		if (list_length(statements) != 1)
+			ereport(ERROR, (errcode(ERRCODE_INVALID_PSTATEMENT_DEFINITION),
+							errmsg("PREPARE requires exactly one statement")));
+		rawstmt = linitial_node(RawStmt, statements);
+		DropPreparedStatement(stmt->name, false);
+	}
+	else
+	{
+		rawstmt = makeNode(RawStmt);
+		rawstmt->stmt = stmt->query;
+		rawstmt->stmt_location = stmt_location;
+		rawstmt->stmt_len = stmt_len;
+	}
 
 	/*
 	 * Create the CachedPlanSource before we do parse analysis, since it needs
 	 * to see the unmodified raw parse tree.
 	 */
-	plansource = CreateCachedPlan(rawstmt, pstate->p_sourcetext,
-								  CreateCommandTag(stmt->query));
+	plansource = CreateCachedPlan(rawstmt, queryString,
+								  CreateCommandTag(rawstmt->stmt));
 
 	/* Transform list of TypeNames to array of type OIDs */
 	nargs = list_length(stmt->argtypes);
@@ -116,8 +150,24 @@ PrepareQuery(ParseState *pstate, PrepareStmt *stmt,
 	 * information about unknown parameters to be deduced from context.
 	 * Rewrite the query. The result could be 0, 1, or many queries.
 	 */
-	query_list = pg_analyze_and_rewrite_varparams(rawstmt, pstate->p_sourcetext,
+	query_list = pg_analyze_and_rewrite_varparams(rawstmt, queryString,
 												  &argtypes, &nargs, NULL);
+
+	if (mysql_prepare && isExtendPreStmt && query_list != NIL)
+	{
+		Query *query = linitial_node(Query, query_list);
+		ListCell *lc;
+		int index = 0;
+
+		mys_setCurrentPreStmtParamTypes(nargs, argtypes);
+		if (query->commandType == CMD_SELECT)
+			foreach(lc, query->targetList)
+			{
+				TargetEntry *tle = lfirst_node(TargetEntry, lc);
+				if (!tle->resjunk)
+					mys_setCurrentPreStmtColumnInfo(index++, exprType((Node *) tle->expr));
+			}
+	}
 
 	/* Finish filling in the CachedPlanSource */
 	CompleteCachedPlan(plansource,

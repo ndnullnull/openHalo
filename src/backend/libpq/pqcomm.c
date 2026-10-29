@@ -794,6 +794,7 @@ int
 AcceptConnection(pgsocket server_fd, ClientSocket *client_sock)
 {
 	/* accept connection and fill in the client (remote) address */
+	client_sock->protocol_kind = PROTOCOL_POSTGRESQL;
 	client_sock->raddr.salen = sizeof(client_sock->raddr.addr);
 	if ((client_sock->sock = accept(server_fd,
 									(struct sockaddr *) &client_sock->raddr.addr,

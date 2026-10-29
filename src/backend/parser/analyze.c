@@ -23,6 +23,7 @@
  */
 
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "access/sysattr.h"
 #include "catalog/pg_proc.h"
@@ -58,32 +59,32 @@
 /* Hook for plugins to get control at end of parse analysis */
 post_parse_analyze_hook_type post_parse_analyze_hook = NULL;
 
-static Query *transformOptionalSelectInto(ParseState *pstate, Node *parseTree);
-static Query *transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt);
-static Query *transformInsertStmt(ParseState *pstate, InsertStmt *stmt);
-static OnConflictExpr *transformOnConflictClause(ParseState *pstate,
+static Query *pg18_transformOptionalSelectInto(ParseState *pstate, Node *parseTree);
+static Query *pg18_transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt);
+static Query *pg18_transformInsertStmt(ParseState *pstate, InsertStmt *stmt);
+OnConflictExpr * transformOnConflictClause(ParseState *pstate,
 												 OnConflictClause *onConflictClause);
 static int	count_rowexpr_columns(ParseState *pstate, Node *expr);
-static Query *transformSelectStmt(ParseState *pstate, SelectStmt *stmt);
-static Query *transformValuesClause(ParseState *pstate, SelectStmt *stmt);
-static Query *transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt);
-static Node *transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
+static Query *pg18_transformSelectStmt(ParseState *pstate, SelectStmt *stmt);
+Query *transformValuesClause(ParseState *pstate, SelectStmt *stmt);
+static Query *pg18_transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt);
+static Node *pg18_transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 									   bool isTopLevel, List **targetlist);
 static void determineRecursiveColTypes(ParseState *pstate,
 									   Node *larg, List *nrtargetlist);
-static Query *transformReturnStmt(ParseState *pstate, ReturnStmt *stmt);
-static Query *transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt);
-static Query *transformPLAssignStmt(ParseState *pstate,
+Query *transformReturnStmt(ParseState *pstate, ReturnStmt *stmt);
+static Query *pg18_transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt);
+Query *transformPLAssignStmt(ParseState *pstate,
 									PLAssignStmt *stmt);
-static Query *transformDeclareCursorStmt(ParseState *pstate,
+Query *transformDeclareCursorStmt(ParseState *pstate,
 										 DeclareCursorStmt *stmt);
-static Query *transformExplainStmt(ParseState *pstate,
+Query *transformExplainStmt(ParseState *pstate,
 								   ExplainStmt *stmt);
-static Query *transformCreateTableAsStmt(ParseState *pstate,
+Query *transformCreateTableAsStmt(ParseState *pstate,
 										 CreateTableAsStmt *stmt);
-static Query *transformCallStmt(ParseState *pstate,
+static Query *pg18_transformCallStmt(ParseState *pstate,
 								CallStmt *stmt);
-static void transformLockingClause(ParseState *pstate, Query *qry,
+void transformLockingClause(ParseState *pstate, Query *qry,
 								   LockingClause *lc, bool pushedDown);
 #ifdef DEBUG_NODE_TESTS_ENABLED
 static bool test_raw_expression_coverage(Node *node, void *context);
@@ -219,7 +220,7 @@ parse_analyze_withcb(RawStmt *parseTree, const char *sourceText,
  *		Entry point for recursively analyzing a sub-statement.
  */
 Query *
-parse_sub_analyze(Node *parseTree, ParseState *parentParseState,
+standard_parse_sub_analyze(Node *parseTree, ParseState *parentParseState,
 				  CommonTableExpr *parentCTE,
 				  bool locked_from_parent,
 				  bool resolve_unknowns)
@@ -270,7 +271,7 @@ transformTopLevelStmt(ParseState *pstate, RawStmt *parseTree)
  * transformStmt() processing.
  */
 static Query *
-transformOptionalSelectInto(ParseState *pstate, Node *parseTree)
+pg18_transformOptionalSelectInto(ParseState *pstate, Node *parseTree)
 {
 	if (IsA(parseTree, SelectStmt))
 	{
@@ -308,8 +309,8 @@ transformOptionalSelectInto(ParseState *pstate, Node *parseTree)
  * transformStmt -
  *	  recursively transform a Parse tree into a Query tree.
  */
-Query *
-transformStmt(ParseState *pstate, Node *parseTree)
+static Query *
+pg18_transformStmt(ParseState *pstate, Node *parseTree)
 {
 	Query	   *result;
 
@@ -487,8 +488,8 @@ stmt_requires_parse_analysis(RawStmt *parseTree)
  *		Returns true if a snapshot must be set before doing parse analysis
  *		on the given raw parse tree.
  */
-bool
-analyze_requires_snapshot(RawStmt *parseTree)
+static bool
+pg18_analyze_requires_snapshot(RawStmt *parseTree)
 {
 	/*
 	 * Currently, this should return true in exactly the same cases that
@@ -550,7 +551,7 @@ query_requires_rewrite_plan(Query *query)
  *	  transforms a Delete Statement
  */
 static Query *
-transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
+pg18_transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
 	ParseNamespaceItem *nsitem;
@@ -630,7 +631,7 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
  *	  transform an Insert Statement
  */
 static Query *
-transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
+pg18_transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
 	SelectStmt *selectStmt = (SelectStmt *) stmt->selectStmt;
@@ -1166,7 +1167,7 @@ transformInsertRow(ParseState *pstate, List *exprlist,
  * transformOnConflictClause -
  *	  transforms an OnConflictClause in an INSERT
  */
-static OnConflictExpr *
+OnConflictExpr *
 transformOnConflictClause(ParseState *pstate,
 						  OnConflictClause *onConflictClause)
 {
@@ -1386,7 +1387,7 @@ count_rowexpr_columns(ParseState *pstate, Node *expr)
  * see below for the other cases.
  */
 static Query *
-transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
+pg18_transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
 	Node	   *qual;
@@ -1528,7 +1529,7 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
  * We build a Query containing a VALUES RTE, rather as if one had written
  *			SELECT * FROM (VALUES ...) AS "*VALUES*"
  */
-static Query *
+Query *
 transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
@@ -1748,7 +1749,7 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
  * the top-level Query.
  */
 static Query *
-transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
+pg18_transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
 	SelectStmt *leftmostSelect;
@@ -2053,7 +2054,7 @@ makeSortGroupClauseForSetOp(Oid rescoltype, bool require_hash)
  * replace UNKNOWN Consts with properly-coerced constants.
  */
 static Node *
-transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
+pg18_transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 						  bool isTopLevel, List **targetlist)
 {
 	bool		isLeaf;
@@ -2437,7 +2438,7 @@ determineRecursiveColTypes(ParseState *pstate, Node *larg, List *nrtargetlist)
  * transformReturnStmt -
  *	  transforms a return statement
  */
-static Query *
+Query *
 transformReturnStmt(ParseState *pstate, ReturnStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
@@ -2469,7 +2470,7 @@ transformReturnStmt(ParseState *pstate, ReturnStmt *stmt)
  *	  transforms an update statement
  */
 static Query *
-transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
+pg18_transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
 	ParseNamespaceItem *nsitem;
@@ -2779,7 +2780,7 @@ transformReturningClause(ParseState *pstate, Query *qry,
  * new value for a container-type variable represented by the target.  The
  * expression references the target as the container source.
  */
-static Query *
+Query *
 transformPLAssignStmt(ParseState *pstate, PLAssignStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
@@ -3029,7 +3030,7 @@ transformPLAssignStmt(ParseState *pstate, PLAssignStmt *stmt)
  * to do it during the normal parse analysis phase to ensure that side effects
  * of parser hooks happen at the expected time.
  */
-static Query *
+Query *
 transformDeclareCursorStmt(ParseState *pstate, DeclareCursorStmt *stmt)
 {
 	Query	   *result;
@@ -3122,7 +3123,7 @@ transformDeclareCursorStmt(ParseState *pstate, DeclareCursorStmt *stmt)
  * to do it during the normal parse analysis phase to ensure that side effects
  * of parser hooks happen at the expected time.
  */
-static Query *
+Query *
 transformExplainStmt(ParseState *pstate, ExplainStmt *stmt)
 {
 	Query	   *result;
@@ -3174,7 +3175,7 @@ transformExplainStmt(ParseState *pstate, ExplainStmt *stmt)
  *
  * As with DECLARE CURSOR and EXPLAIN, transform the contained statement now.
  */
-static Query *
+Query *
 transformCreateTableAsStmt(ParseState *pstate, CreateTableAsStmt *stmt)
 {
 	Query	   *result;
@@ -3250,7 +3251,7 @@ transformCreateTableAsStmt(ParseState *pstate, CreateTableAsStmt *stmt)
  * transform a CallStmt
  */
 static Query *
-transformCallStmt(ParseState *pstate, CallStmt *stmt)
+pg18_transformCallStmt(ParseState *pstate, CallStmt *stmt)
 {
 	List	   *targs;
 	ListCell   *lc;
@@ -3463,7 +3464,7 @@ CheckSelectLocking(Query *qry, LockClauseStrength strength)
  * NB: if you need to change this, see also markQueryForLocking()
  * in rewriteHandler.c, and isLockedRefname() in parse_relation.c.
  */
-static void
+void
 transformLockingClause(ParseState *pstate, Query *qry, LockingClause *lc,
 					   bool pushedDown)
 {
@@ -3759,3 +3760,94 @@ test_raw_expression_coverage(Node *node, void *context)
 									  context);
 }
 #endif							/* DEBUG_NODE_TESTS_ENABLED */
+
+Query *transformOptionalSelectInto(ParseState *pstate, Node *parseTree)
+{
+	if (parserengine && parserengine->transformOptionalSelectInto)
+		return parserengine->transformOptionalSelectInto(pstate, parseTree);
+	return pg18_transformOptionalSelectInto(pstate, parseTree);
+}
+
+Query *transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
+{
+	if (parserengine && parserengine->transformDeleteStmt)
+		return parserengine->transformDeleteStmt(pstate, stmt);
+	return pg18_transformDeleteStmt(pstate, stmt);
+}
+
+Query *transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
+{
+	if (parserengine && parserengine->transformInsertStmt)
+		return parserengine->transformInsertStmt(pstate, stmt);
+	return pg18_transformInsertStmt(pstate, stmt);
+}
+
+Query *transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
+{
+	if (parserengine && parserengine->transformSelectStmt)
+		return parserengine->transformSelectStmt(pstate, stmt);
+	return pg18_transformSelectStmt(pstate, stmt);
+}
+
+Query *transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
+{
+	if (parserengine && parserengine->transformSetOperationStmt)
+		return parserengine->transformSetOperationStmt(pstate, stmt);
+	return pg18_transformSetOperationStmt(pstate, stmt);
+}
+
+Node *transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
+									   bool isTopLevel, List **targetlist)
+{
+	if (parserengine && parserengine->transformSetOperationTree)
+		return parserengine->transformSetOperationTree(pstate, stmt, isTopLevel, targetlist);
+	return pg18_transformSetOperationTree(pstate, stmt, isTopLevel, targetlist);
+}
+
+Query *transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
+{
+	if (parserengine && parserengine->transformUpdateStmt)
+		return parserengine->transformUpdateStmt(pstate, stmt);
+	return pg18_transformUpdateStmt(pstate, stmt);
+}
+
+Query *transformCallStmt(ParseState *pstate,
+								CallStmt *stmt)
+{
+	if (parserengine && parserengine->transformCallStmt)
+		return parserengine->transformCallStmt(pstate, stmt);
+	return pg18_transformCallStmt(pstate, stmt);
+}
+
+Query *
+transformStmt(ParseState *pstate, Node *parseTree)
+{
+	if (parserengine && parserengine->transformStmt)
+	{
+		return parserengine->transformStmt(pstate, parseTree);
+	}
+	return pg18_transformStmt(pstate, parseTree);
+}
+
+bool
+analyze_requires_snapshot(RawStmt *parseTree)
+{
+	if (parserengine && parserengine->analyze_requires_snapshot)
+	{
+		return parserengine->analyze_requires_snapshot(parseTree);
+	}
+	return pg18_analyze_requires_snapshot(parseTree);
+}
+
+/* Replaceable engine entries; the standard bodies retain PG18 semantics. */
+
+Query *
+parse_sub_analyze(Node *parseTree, ParseState *parentParseState, CommonTableExpr *parentCTE,
+							 bool locked_from_parent, bool resolve_unknowns)
+{
+	if (parserengine && parserengine->parse_sub_analyze)
+		return parserengine->parse_sub_analyze(parseTree, parentParseState, parentCTE,
+		locked_from_parent, resolve_unknowns);
+	return standard_parse_sub_analyze(parseTree, parentParseState, parentCTE, locked_from_parent,
+		resolve_unknowns);
+}

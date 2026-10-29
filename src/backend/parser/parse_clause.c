@@ -14,6 +14,7 @@
  */
 
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "access/htup_details.h"
 #include "access/nbtree.h"
@@ -2628,8 +2629,8 @@ transformGroupingSet(List **flatresult,
  * exprKind		expression kind
  * useSQL99		SQL99 rather than SQL92 syntax
  */
-List *
-transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
+static List *
+pg18_transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
 					 List **targetlist, List *sortClause,
 					 ParseExprKind exprKind, bool useSQL99)
 {
@@ -2981,8 +2982,8 @@ transformWindowDefinitions(ParseState *pstate,
  * function call.  This does not affect any behavior, only the phrasing
  * of error messages.
  */
-List *
-transformDistinctClause(ParseState *pstate,
+static List *
+pg18_transformDistinctClause(ParseState *pstate,
 						List **targetlist, List *sortClause, bool is_agg)
 {
 	List	   *result = NIL;
@@ -3293,8 +3294,8 @@ resolve_unique_index_expr(ParseState *pstate, InferClause *infer,
  * an ON CONFLICT arbiter.  Partial unique indexes may be inferred using WHERE
  * clause from inference specification clause.
  */
-void
-transformOnConflictArbiter(ParseState *pstate,
+static void
+pg18_transformOnConflictArbiter(ParseState *pstate,
 						   OnConflictClause *onConflictClause,
 						   List **arbiterExpr, Node **arbiterWhere,
 						   Oid *constraint)
@@ -3822,4 +3823,41 @@ transformFrameOffset(ParseState *pstate, int frameOptions,
 	checkExprIsVarFree(pstate, node, constructName);
 
 	return node;
+}
+
+List *
+transformGroupClause(ParseState *pstate, List *grouplist, List **groupingSets,
+					 List **targetlist, List *sortClause,
+					 ParseExprKind exprKind, bool useSQL99)
+{
+	if (parserengine && parserengine->transformGroupClause)
+	{
+		return parserengine->transformGroupClause(pstate, grouplist, groupingSets, targetlist, sortClause, exprKind, useSQL99);
+	}
+	return pg18_transformGroupClause(pstate, grouplist, groupingSets, targetlist, sortClause, exprKind, useSQL99);
+}
+
+List *
+transformDistinctClause(ParseState *pstate,
+						List **targetlist, List *sortClause, bool is_agg)
+{
+	if (parserengine && parserengine->transformDistinctClause)
+	{
+		return parserengine->transformDistinctClause(pstate, targetlist, sortClause, is_agg);
+	}
+	return pg18_transformDistinctClause(pstate, targetlist, sortClause, is_agg);
+}
+
+void
+transformOnConflictArbiter(ParseState *pstate,
+						   OnConflictClause *onConflictClause,
+						   List **arbiterExpr, Node **arbiterWhere,
+						   Oid *constraint)
+{
+	if (parserengine && parserengine->transformOnConflictArbiter)
+	{
+		parserengine->transformOnConflictArbiter(pstate, onConflictClause, arbiterExpr, arbiterWhere, constraint);
+		return;
+	}
+	pg18_transformOnConflictArbiter(pstate, onConflictClause, arbiterExpr, arbiterWhere, constraint);
 }

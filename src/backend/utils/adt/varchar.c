@@ -25,6 +25,7 @@
 #include "nodes/supportnodes.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
+#include "utils/mysql/mys_compat.h"
 #include "utils/pg_locale.h"
 #include "utils/varlena.h"
 
@@ -47,7 +48,8 @@ anychar_typmodin(ArrayType *ta, const char *typename)
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("invalid type modifier")));
 
-	if (*tl < 1)
+	/* Legacy zero-width columns also appear in pg_upgrade's binary dump. */
+	if (*tl < 0 || (*tl == 0 && !IsMySQLCompatMode() && !IsBinaryUpgrade))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("length for type %s must be at least 1", typename)));
@@ -73,7 +75,7 @@ anychar_typmodout(int32 typmod)
 {
 	char	   *res = (char *) palloc(64);
 
-	if (typmod > VARHDRSZ)
+	if (typmod >= VARHDRSZ)
 		snprintf(res, 64, "(%d)", (int) (typmod - VARHDRSZ));
 	else
 		*res = '\0';
@@ -219,8 +221,18 @@ Datum
 bpcharout(PG_FUNCTION_ARGS)
 {
 	Datum		txt = PG_GETARG_DATUM(0);
+	char	   *result = TextDatumGetCString(txt);
 
-	PG_RETURN_CSTRING(TextDatumGetCString(txt));
+	if (IsMySQLCompatMode())
+	{
+		Size		len = strlen(result);
+
+		/* Trim the output copy, including an all-space CHAR value. */
+		while (len > 0 && result[len - 1] == ' ')
+			len--;
+		result[len] = '\0';
+	}
+	PG_RETURN_CSTRING(result);
 }
 
 /*

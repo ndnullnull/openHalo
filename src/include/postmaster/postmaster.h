@@ -13,6 +13,11 @@
 #ifndef _POSTMASTER_H
 #define _POSTMASTER_H
 
+#include "postmaster/protocol_interface.h"
+
+extern int OpenHaloListen(int family, const char *host, unsigned short port,
+						const char *socket_dir, ProtocolKind protocol_kind);
+
 #include "lib/ilist.h"
 #include "miscadmin.h"
 

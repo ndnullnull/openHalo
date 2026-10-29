@@ -82,6 +82,7 @@ typedef enum ParseExprKind
 	EXPR_KIND_COPY_WHERE,		/* WHERE condition in COPY FROM */
 	EXPR_KIND_GENERATED_COLUMN, /* generation expression for a column */
 	EXPR_KIND_CYCLE_MARK,		/* cycle mark value */
+	EXPR_KIND_VARIABLE_DEFAULT, /* OpenHalo schema variable default */
 } ParseExprKind;
 
 
@@ -191,6 +192,12 @@ typedef Node *(*CoerceParamHook) (ParseState *pstate, Param *param,
  */
 struct ParseState
 {
+	/* OpenHalo UNION target types and MySQL permissive GROUP BY state. */
+	List *targettypelist;
+	bool p_hasOrphanCols;
+	Node *(*p_pre_funccall_hook)(ParseState *, FuncCall *, List *);
+	Node *(*p_pre_procedurecall_hook)(ParseState *, CallStmt *, List *);
+
 	ParseState *parentParseState;	/* stack link */
 	const char *p_sourcetext;	/* source text, or NULL if not available */
 	List	   *p_rtable;		/* range table so far */

@@ -887,3 +887,24 @@
 #------------------------------------------------------------------------------
 
 # Add settings for extensions here
+
+# OpenHalo compatibility settings
+#database_compat_mode = 'postgresql'	# postgresql or mysql (restart required)
+#standard_parserengine_auxiliary = 'on'	# off/on, no/yes, false/true
+
+# The second listener requires database_compat_mode = 'mysql'.
+#mysql.listener_on = false		# (change requires restart)
+#mysql.port = 3306			# (change requires restart)
+#mysql.halo_mysql_version = '5.7.32-log'	# (change requires restart)
+#mysql.explicit_defaults_for_timestamp = false # (change requires restart)
+#mysql.auto_rollback_tx_on_error = false	# (change requires restart)
+#mysql.support_multiple_table_update = true # (change requires restart)
+#mysql.column_name_case_control = 0	# 0..3 (change requires restart)
+#mysql.max_allowed_packet = 67108864B	# 1024B..1073741824B; session-settable
+
+# Requires pg_stat_statements in shared_preload_libraries.
+#pg_stat_statements.untrack_dbnames = ''	# comma-separated database names
+
+# Historical sample-only names, not registered settings in the source version:
+#mysql.ci_collation = true
+#mysql.halo_mysql_ci_collation = 0

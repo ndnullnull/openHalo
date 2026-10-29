@@ -18,7 +18,9 @@
 #include <ctype.h>
 
 #include "common/hashfn.h"
+#include "libpq/libpq-be.h"
 #include "libpq/pqformat.h"
+#include "miscadmin.h"
 #include "utils/builtins.h"
 
 /*
@@ -160,7 +162,12 @@ boolout(PG_FUNCTION_ARGS)
 	bool		b = PG_GETARG_BOOL(0);
 	char	   *result = (char *) palloc(2);
 
-	result[0] = (b) ? 't' : 'f';
+	/* MySQL advertises boolean results as TINYINT in both row formats. */
+	if (MyProcPort && MyProcPort->protocol_handler &&
+		MyProcPort->protocol_handler->type == PROTOCOL_MYSQL)
+		result[0] = b ? '1' : '0';
+	else
+		result[0] = b ? 't' : 'f';
 	result[1] = '\0';
 	PG_RETURN_CSTRING(result);
 }
@@ -207,7 +214,11 @@ booltext(PG_FUNCTION_ARGS)
 	bool		arg1 = PG_GETARG_BOOL(0);
 	const char *str;
 
-	if (arg1)
+	/* Preserve OpenHalo's MySQL boolean-to-text cast as well as row output. */
+	if (MyProcPort && MyProcPort->protocol_handler &&
+		MyProcPort->protocol_handler->type == PROTOCOL_MYSQL)
+		str = arg1 ? "1" : "0";
+	else if (arg1)
 		str = "true";
 	else
 		str = "false";

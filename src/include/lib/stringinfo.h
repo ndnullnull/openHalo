@@ -49,6 +49,8 @@ typedef struct StringInfoData
 	int			len;
 	int			maxlen;
 	int			cursor;
+	/* Reserved prefix used by the MySQL command rewriter; zero otherwise. */
+	int			offset;
 } StringInfoData;
 
 typedef StringInfoData *StringInfo;
@@ -160,6 +162,7 @@ initReadOnlyStringInfo(StringInfo str, char *data, int len)
 	str->len = len;
 	str->maxlen = 0;			/* read-only */
 	str->cursor = 0;
+	str->offset = 0;
 }
 
 /*------------------------
@@ -180,6 +183,7 @@ initStringInfoFromString(StringInfo str, char *data, int len)
 	str->len = len;
 	str->maxlen = len + 1;
 	str->cursor = 0;
+	str->offset = 0;
 }
 
 /*------------------------

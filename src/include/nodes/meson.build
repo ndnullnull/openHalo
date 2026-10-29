@@ -24,6 +24,7 @@ node_support_input_i = [
   'nodes/supportnodes.h',
   'nodes/value.h',
   'utils/rel.h',
+  'nodes/mysql/mys_parsenodes.h',
 ]
 
 node_support_input = []

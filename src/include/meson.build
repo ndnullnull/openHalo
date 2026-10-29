@@ -95,6 +95,7 @@ install_headers(
   'funcapi.h',
   'getopt_long.h',
   'miscadmin.h',
+  'miscpost.h',
   'pg_config_manual.h',
   'pg_getopt.h',
   'pg_trace.h',

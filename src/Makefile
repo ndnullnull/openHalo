@@ -17,6 +17,7 @@ SUBDIRS = \
 	port \
 	timezone \
 	backend \
+	backend/utils/ddsm \
 	backend/utils/mb/conversion_procs \
 	backend/snowball \
 	include \
@@ -44,6 +45,9 @@ $(recurse)
 install: install-local
 
 install-local: installdirs-local
+	$(INSTALL_DATA) $(top_srcdir)/COPYRIGHT '$(DESTDIR)$(datadir)/COPYRIGHT'
+	$(INSTALL_DATA) $(top_srcdir)/3party-legal-notices '$(DESTDIR)$(datadir)/3party-legal-notices'
+	$(INSTALL_DATA) $(top_srcdir)/LICENSE '$(DESTDIR)$(datadir)/LICENSE'
 	$(INSTALL_DATA) Makefile.global '$(DESTDIR)$(pgxsdir)/$(subdir)/Makefile.global'
 	$(INSTALL_DATA) Makefile.port '$(DESTDIR)$(pgxsdir)/$(subdir)/Makefile.port'
 	$(INSTALL_DATA) $(srcdir)/Makefile.shlib '$(DESTDIR)$(pgxsdir)/$(subdir)/Makefile.shlib'
@@ -52,11 +56,13 @@ install-local: installdirs-local
 installdirs: installdirs-local
 
 installdirs-local:
+	$(MKDIR_P) '$(DESTDIR)$(datadir)'
 	$(MKDIR_P) '$(DESTDIR)$(pgxsdir)/$(subdir)'
 
 uninstall: uninstall-local
 
 uninstall-local:
+	rm -f $(addprefix '$(DESTDIR)$(datadir)'/, COPYRIGHT 3party-legal-notices LICENSE)
 	rm -f $(addprefix '$(DESTDIR)$(pgxsdir)/$(subdir)'/, Makefile.global Makefile.port Makefile.shlib nls-global.mk)
 
 clean:

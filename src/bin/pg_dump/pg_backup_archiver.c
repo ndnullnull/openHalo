@@ -46,6 +46,8 @@
 
 #define TEXT_DUMP_HEADER "--\n-- PostgreSQL database dump\n--\n\n"
 #define TEXT_DUMPALL_HEADER "--\n-- PostgreSQL database cluster dump\n--\n\n"
+#define HALO_TEXT_DUMP_HEADER "--\n-- Halo database dump\n--\n\n"
+#define HALO_TEXT_DUMPALL_HEADER "--\n-- Halo database cluster dump\n--\n\n"
 
 #define TOC_PREFIX_NONE		""
 #define TOC_PREFIX_DATA		"Data for "
@@ -459,7 +461,7 @@ RestoreArchive(Archive *AHX)
 	if (ropt->filename || ropt->compression_spec.algorithm != PG_COMPRESSION_NONE)
 		SetOutput(AH, ropt->filename, ropt->compression_spec);
 
-	ahprintf(AH, "--\n-- PostgreSQL database dump\n--\n\n");
+	ahprintf(AH, HALO_TEXT_DUMP_HEADER);
 
 	/*
 	 * If generating plain-text output, enter restricted mode to block any
@@ -810,7 +812,7 @@ RestoreArchive(Archive *AHX)
 	if (AH->public.verbose)
 		dumpTimestamp(AH, "Completed on", time(NULL));
 
-	ahprintf(AH, "--\n-- PostgreSQL database dump complete\n--\n\n");
+	ahprintf(AH, "--\n-- Halo database dump complete\n--\n\n");
 
 	/*
 	 * If generating plain-text output, exit restricted mode at the very end
@@ -2330,9 +2332,12 @@ _discoverArchiveFormat(ArchiveHandle *AH)
 		/* read failure is checked below */
 		AH->lookaheadLen += cnt;
 
-		if (AH->lookaheadLen >= strlen(TEXT_DUMPALL_HEADER) &&
+		if ((AH->lookaheadLen >= strlen(HALO_TEXT_DUMPALL_HEADER) &&
+			 (strncmp(AH->lookahead, HALO_TEXT_DUMP_HEADER, strlen(HALO_TEXT_DUMP_HEADER)) == 0 ||
+			  strncmp(AH->lookahead, HALO_TEXT_DUMPALL_HEADER, strlen(HALO_TEXT_DUMPALL_HEADER)) == 0)) ||
+			(AH->lookaheadLen >= strlen(TEXT_DUMPALL_HEADER) &&
 			(strncmp(AH->lookahead, TEXT_DUMP_HEADER, strlen(TEXT_DUMP_HEADER)) == 0 ||
-			 strncmp(AH->lookahead, TEXT_DUMPALL_HEADER, strlen(TEXT_DUMPALL_HEADER)) == 0))
+			 strncmp(AH->lookahead, TEXT_DUMPALL_HEADER, strlen(TEXT_DUMPALL_HEADER)) == 0)))
 		{
 			/*
 			 * looks like it's probably a text format dump. so suggest they

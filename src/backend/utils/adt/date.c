@@ -14,6 +14,7 @@
  */
 
 #include "postgres.h"
+#include "utils/adtext.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -28,12 +29,15 @@
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
 #include "nodes/supportnodes.h"
+#include "nodes/miscnodes.h"
 #include "parser/scansup.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/date.h"
 #include "utils/datetime.h"
 #include "utils/numeric.h"
+#include "utils/mysql/mys_compat.h"
+#include "utils/mysql/mys_date.h"
 #include "utils/skipsupport.h"
 #include "utils/sortsupport.h"
 
@@ -127,6 +131,9 @@ date_in(PG_FUNCTION_ARGS)
 	int			ftype[MAXDATEFIELDS];
 	char		workbuf[MAXDATELEN + 1];
 	DateTimeErrorExtra extra;
+
+	if (adtext && adtext->date_in)
+		return adtext->date_in(fcinfo);
 
 	dterr = ParseDateTime(str, workbuf, sizeof(workbuf),
 						  field, ftype, MAXDATEFIELDS, &nf);
@@ -1457,6 +1464,14 @@ time_in(PG_FUNCTION_ARGS)
 	int			ftype[MAXDATEFIELDS];
 	DateTimeErrorExtra extra;
 
+	if (adtext && adtext->pre_time_in)
+	{
+		result = adtext->pre_time_in(fcinfo);
+		if (SOFT_ERROR_OCCURRED(escontext))
+			PG_RETURN_NULL();
+		PG_RETURN_TIMEADT(result);
+	}
+
 	dterr = ParseDateTime(str, workbuf, sizeof(workbuf),
 						  field, ftype, MAXDATEFIELDS, &nf);
 	if (dterr == 0)
@@ -1571,6 +1586,9 @@ time_out(PG_FUNCTION_ARGS)
 			   *tm = &tt;
 	fsec_t		fsec;
 	char		buf[MAXDATELEN + 1];
+
+	if (adtext && adtext->post_time_out)
+		PG_RETURN_CSTRING(adtext->post_time_out(fcinfo));
 
 	time2tm(time, tm, &fsec);
 	EncodeTimeOnly(tm, fsec, false, 0, DateStyle, buf);
@@ -2356,6 +2374,9 @@ timetz_in(PG_FUNCTION_ARGS)
 	int			ftype[MAXDATEFIELDS];
 	DateTimeErrorExtra extra;
 
+	if (adtext && adtext->pre_timetz_in)
+		str = adtext->pre_timetz_in(str);
+
 	dterr = ParseDateTime(str, workbuf, sizeof(workbuf),
 						  field, ftype, MAXDATEFIELDS, &nf);
 	if (dterr == 0)
@@ -2385,6 +2406,9 @@ timetz_out(PG_FUNCTION_ARGS)
 	fsec_t		fsec;
 	int			tz;
 	char		buf[MAXDATELEN + 1];
+
+	if (adtext && adtext->post_timetz_out)
+		PG_RETURN_CSTRING(adtext->post_timetz_out(time));
 
 	timetz2tm(time, tm, &fsec, &tz);
 	EncodeTimeOnly(tm, fsec, true, tz, DateStyle, buf);

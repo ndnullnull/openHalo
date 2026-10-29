@@ -14,6 +14,7 @@
  */
 
 #include "postgres.h"
+#include "utils/funcext.h"
 
 #include "access/detoast.h"
 #include "catalog/pg_language.h"
@@ -630,6 +631,14 @@ struct fmgr_security_definer_cache
  */
 extern Datum
 fmgr_security_definer(PG_FUNCTION_ARGS)
+{
+	if (fmgrext && fmgrext->fmgr_security_definer)
+		return fmgrext->fmgr_security_definer(fcinfo);
+	return standard_fmgr_security_definer(fcinfo);
+}
+
+Datum
+standard_fmgr_security_definer(PG_FUNCTION_ARGS)
 {
 	Datum		result;
 	struct fmgr_security_definer_cache *volatile fcache;

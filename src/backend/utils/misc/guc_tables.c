@@ -19,6 +19,8 @@
  *--------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "adapter/mysql/adapter.h"
+#include "parser/parsereng.h"
 
 #ifdef HAVE_COPYFILE_H
 #include <copyfile.h>
@@ -414,9 +416,26 @@ static const struct config_enum_entry plan_cache_mode_options[] = {
 };
 
 static const struct config_enum_entry password_encryption_options[] = {
+	{"mysql_native_password", PASSWORD_TYPE_MYS_NATIVE_PASSWORD, false},
 	{"md5", PASSWORD_TYPE_MD5, false},
 	{"scram-sha-256", PASSWORD_TYPE_SCRAM_SHA_256, false},
 	{NULL, 0, false}
+};
+
+static const struct config_enum_entry database_compat_mode_options[] = {
+	{"postgresql", POSTGRESQL_COMPAT_MODE, false},
+	{"mysql", MYSQL_COMPAT_MODE, false},
+	{NULL, 0, false}
+};
+
+static const struct config_enum_entry standard_parserengine_auxiliary_options[] = {
+	{"off", STANDARDARD_PARSERENGINE_AUXILIARY_OFF, false},
+	{"on", STANDARDARD_PARSERENGINE_AUXILIARY_ON, false},
+	{"no", STANDARDARD_PARSERENGINE_AUXILIARY_OFF, false},
+	{"yes", STANDARDARD_PARSERENGINE_AUXILIARY_ON, false},
+	{"false", STANDARDARD_PARSERENGINE_AUXILIARY_OFF, false},
+	{"true", STANDARDARD_PARSERENGINE_AUXILIARY_ON, false},
+	{NULL, 1, false}
 };
 
 static const struct config_enum_entry ssl_protocol_versions_info[] = {
@@ -799,6 +818,27 @@ StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
 
 struct config_bool ConfigureNamesBool[] =
 {
+	{{"mysql.listener_on", PGC_POSTMASTER, CUSTOM_OPTIONS,
+	  gettext_noop("Enables the MySQL protocol listener."), NULL},
+	 &halo_mysql_listener_on, false, NULL, NULL, NULL},
+	{
+		{"mysql.explicit_defaults_for_timestamp", PGC_POSTMASTER, CUSTOM_OPTIONS,
+			gettext_noop("Sets the mysql explicit_defaults_for_timestamp."), NULL},
+		&halo_mysql_explicit_defaults_for_timestamp,
+		false, NULL, NULL, NULL
+	},
+	{
+		{"mysql.auto_rollback_tx_on_error", PGC_POSTMASTER, CUSTOM_OPTIONS,
+			gettext_noop("Sets the mysql auto_rollback_tx_on_error."), NULL},
+		&halo_mysql_auto_rollback_tx_on_error,
+		false, NULL, NULL, NULL
+	},
+	{
+		{"mysql.support_multiple_table_update", PGC_POSTMASTER, CUSTOM_OPTIONS,
+			gettext_noop("Sets the mysql support_multiple_table_update."), NULL},
+		&halo_mysql_support_multiple_table_update,
+		true, NULL, NULL, NULL
+	},
 	{
 		{"enable_seqscan", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of sequential-scan plans."),
@@ -2162,6 +2202,22 @@ struct config_bool ConfigureNamesBool[] =
 
 struct config_int ConfigureNamesInt[] =
 {
+	{{"mysql.port", PGC_POSTMASTER, CONN_AUTH_SETTINGS,
+	  gettext_noop("Sets the MySQL listener port."), NULL},
+	 &PostMySQLPortNumber, 3306, 1, 65535, NULL, NULL, NULL},
+	{
+		{"mysql.column_name_case_control", PGC_POSTMASTER, CUSTOM_OPTIONS,
+			gettext_noop("Sets the mysql column_name_case_control."), NULL},
+		&halo_mysql_column_name_case_control,
+		0, 0, 3, NULL, NULL, NULL
+	},
+	{
+		{"mysql.max_allowed_packet", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Sets max allowed packet the server can receive."), NULL,
+			GUC_UNIT_BYTE},
+		&halo_mysql_max_allowed_packet,
+		67108864, 1024, 1073741824, NULL, NULL, NULL
+	},
 	{
 		{"archive_timeout", PGC_SIGHUP, WAL_ARCHIVING,
 			gettext_noop("Sets the amount of time to wait before forcing a "
@@ -4170,6 +4226,9 @@ struct config_real ConfigureNamesReal[] =
 
 struct config_string ConfigureNamesString[] =
 {
+	{{"mysql.halo_mysql_version", PGC_POSTMASTER, CUSTOM_OPTIONS,
+	  gettext_noop("Sets the MySQL protocol version string."), NULL},
+	 &halo_mysql_version, "5.7.32-log", NULL, NULL, NULL},
 	{
 		{"archive_command", PGC_SIGHUP, WAL_ARCHIVING,
 			gettext_noop("Sets the shell command that will be called to archive a WAL file."),
@@ -5016,6 +5075,22 @@ struct config_string ConfigureNamesString[] =
 
 struct config_enum ConfigureNamesEnum[] =
 {
+	{
+		{"database_compat_mode", PGC_POSTMASTER, CUSTOM_OPTIONS,
+			gettext_noop("Sets the database compat mode."), NULL,
+			GUC_SUPERUSER_ONLY},
+		&database_compat_mode,
+		POSTGRESQL_COMPAT_MODE, database_compat_mode_options,
+		NULL, NULL, NULL
+	},
+	{
+		{"standard_parserengine_auxiliary", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("Sets the parserengine if need standard parserengine auxiliary."), NULL,
+			GUC_SUPERUSER_ONLY},
+		&standard_parserengine_auxiliary,
+		STANDARDARD_PARSERENGINE_AUXILIARY_ON, standard_parserengine_auxiliary_options,
+		NULL, NULL, NULL
+	},
 	{
 		{"backslash_quote", PGC_USERSET, COMPAT_OPTIONS_PREVIOUS,
 			gettext_noop("Sets whether \"\\'\" is allowed in string literals."),

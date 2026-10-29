@@ -458,6 +458,9 @@ typedef struct FuncCall
 	bool		func_variadic;	/* last argument was labeled VARIADIC */
 	CoercionForm funcformat;	/* how to display this node */
 	ParseLoc	location;		/* token location, or -1 if unknown */
+	/* OpenHalo MySQL syntax metadata. */
+	ParseLoc arglocation;
+	ParseLoc endlocation;
 } FuncCall;
 
 /*
@@ -2124,6 +2127,11 @@ typedef struct DeleteStmt
 	Node	   *whereClause;	/* qualifications */
 	ReturningClause *returningClause;	/* RETURNING clause */
 	WithClause *withClause;		/* WITH clause */
+	/* OpenHalo MySQL syntax metadata. */
+	List *sortClause;
+	Node *limitOffset;
+	Node *limitCount;
+	LimitOption limitOption;
 } DeleteStmt;
 
 /* ----------------------
@@ -2139,6 +2147,12 @@ typedef struct UpdateStmt
 	List	   *fromClause;		/* optional from clause for more tables */
 	ReturningClause *returningClause;	/* RETURNING clause */
 	WithClause *withClause;		/* WITH clause */
+	/* OpenHalo MySQL syntax metadata. */
+	List *sortClause;
+	Node *limitOffset;
+	Node *limitCount;
+	LimitOption limitOption;
+	Node *onClause;
 } UpdateStmt;
 
 /* ----------------------
@@ -2224,6 +2238,10 @@ typedef struct SelectStmt
 	struct SelectStmt *larg;	/* left child */
 	struct SelectStmt *rarg;	/* right child */
 	/* Eventually add fields for CORRESPONDING spec here */
+	/* OpenHalo MySQL syntax metadata. */
+	Node *onClause;
+	bool writeyes;
+	bool mysql_show;		/* SHOW translated to SELECT: no data transaction */
 } SelectStmt;
 
 
@@ -2477,6 +2495,8 @@ typedef enum AlterTableType
 	AT_SetIdentity,				/* SET identity column options */
 	AT_DropIdentity,			/* DROP IDENTITY */
 	AT_ReAddStatistics,			/* internal to commands/tablecmds.c */
+
+	AT_ModifyColumn, AT_ChangeColumn, AT_TableOption, AT_DropPrimaryKey, AT_DropIndex, AT_DropForeignKey, AT_DropCheck, AT_DropCheckRecurse
 } AlterTableType;
 
 typedef struct AlterTableCmd	/* one subcommand of an ALTER TABLE */
@@ -2713,6 +2733,8 @@ typedef struct VariableSetStmt
 	bool		jumble_args;
 	/* SET LOCAL? */
 	bool		is_local;
+	/* MySQL USE must check schema existence and access before SET search_path. */
+	bool		mysql_use;
 	/* token location, or -1 if unknown */
 	ParseLoc	location pg_node_attr(query_jumble_location);
 } VariableSetStmt;
@@ -2807,6 +2829,8 @@ typedef enum ConstrType			/* types of constraints */
 	CONSTR_ATTR_IMMEDIATE,
 	CONSTR_ATTR_ENFORCED,
 	CONSTR_ATTR_NOT_ENFORCED,
+
+	CONSTR_AUTOINC, CONSTR_KEY
 } ConstrType;
 
 /* Foreign key action codes */
@@ -3330,6 +3354,7 @@ typedef struct DropStmt
 	DropBehavior behavior;		/* RESTRICT or CASCADE behavior */
 	bool		missing_ok;		/* skip error if object is missing? */
 	bool		concurrent;		/* drop index concurrently? */
+	RangeVar   *mysql_table;	/* MySQL DROP INDEX name ON table */
 } DropStmt;
 
 /* ----------------------
@@ -3528,6 +3553,7 @@ typedef struct AlterStatsStmt
 typedef struct CreateFunctionStmt
 {
 	NodeTag		type;
+	char		proaccess;		/* OpenHalo; zero selects NON_PACKAGE_MEMBER */
 	bool		is_procedure;	/* it's really CREATE PROCEDURE */
 	bool		replace;		/* T => replace if already exists */
 	List	   *funcname;		/* qualified name of function to create */
@@ -3610,6 +3636,8 @@ typedef struct CallStmt
 	FuncExpr   *funcexpr;
 	/* transformed output-argument expressions */
 	List	   *outargs;
+	/* OpenHalo MySQL syntax metadata. */
+	bool inProc;
 } CallStmt;
 
 typedef struct CallContext
@@ -3650,6 +3678,11 @@ typedef struct AlterObjectDependsStmt
 	Node	   *object;			/* name of the object */
 	String	   *extname;		/* extension name */
 	bool		remove;			/* set true to remove dep rather than add */
+	/* OpenHalo generated-object dependencies; extname is NULL. */
+	ObjectType refObjectType;
+	RangeVar *refRelation;
+	Node *refObject;
+	char deptype;
 } AlterObjectDependsStmt;
 
 /* ----------------------
@@ -3991,6 +4024,7 @@ typedef struct CreateTableAsStmt
 {
 	NodeTag		type;
 	Node	   *query;			/* the query (see comments above) */
+	Node	   *mysql_query;	/* original SELECT for MySQL CREATE + INSERT */
 	IntoClause *into;			/* destination table */
 	ObjectType	objtype;		/* OBJECT_TABLE or OBJECT_MATVIEW */
 	bool		is_select_into; /* it was written as SELECT INTO */

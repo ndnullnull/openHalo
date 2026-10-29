@@ -2,6 +2,7 @@
  *
  * pg_ctl --- start/stops/restarts the PostgreSQL server
  *
+ * Portions Copyright (c) 2021, Halo Tech Co,.Ltd.
  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
  *
  * src/bin/pg_ctl/pg_ctl.c
@@ -904,7 +905,7 @@ do_init(void)
 	char	   *cmd;
 
 	if (exec_path == NULL)
-		exec_path = find_other_exec_or_die(argv0, "initdb", "initdb (PostgreSQL) " PG_VERSION "\n");
+		exec_path = find_other_exec_or_die(argv0, "initdb", "initdb (Halo) " PG_VERSION_PREFIX PG_VERSION "\n");
 
 	if (pgdata_opt == NULL)
 		pgdata_opt = "";
@@ -2245,7 +2246,7 @@ main(int argc, char **argv)
 		}
 		else if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
-			puts("pg_ctl (PostgreSQL) " PG_VERSION);
+			puts("pg_ctl (Halo) " PG_VERSION_PREFIX PG_VERSION);
 			exit(0);
 		}
 	}

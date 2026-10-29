@@ -13,8 +13,10 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "utils/fmgroids.h"
 
 #include "access/htup_details.h"
+#include "access/genam.h"
 #include "access/relation.h"
 #include "access/table.h"
 #include "catalog/dependency.h"
@@ -24,6 +26,7 @@
 #include "catalog/pg_collation.h"
 #include "catalog/pg_conversion.h"
 #include "catalog/pg_database_d.h"
+#include "catalog/pg_depend.h"
 #include "catalog/pg_event_trigger.h"
 #include "catalog/pg_foreign_data_wrapper.h"
 #include "catalog/pg_foreign_server.h"
@@ -461,6 +464,53 @@ ExecRenameStmt(RenameStmt *stmt)
 }
 
 /*
+ * OpenHalo binds generated triggers, functions and types to their owning
+ * objects.  Match both subobject IDs: a column dependency must not be
+ * confused with another column of the same table, or with the table itself.
+ */
+static void
+alterGeneratedObjectDependency(const ObjectAddress *address,
+							   const ObjectAddress *reference,
+							   char deptype, bool remove)
+{
+	Relation catalog;
+	SysScanDesc scan;
+	ScanKeyData keys[2];
+	HeapTuple tuple;
+	bool found = false;
+
+	if (deptype != DEPENDENCY_AUTO && deptype != DEPENDENCY_INTERNAL)
+		elog(ERROR, "invalid generated object dependency type: %d", deptype);
+
+	catalog = table_open(DependRelationId, RowExclusiveLock);
+	ScanKeyInit(&keys[0], Anum_pg_depend_classid, BTEqualStrategyNumber,
+				F_OIDEQ, ObjectIdGetDatum(address->classId));
+	ScanKeyInit(&keys[1], Anum_pg_depend_objid, BTEqualStrategyNumber,
+				F_OIDEQ, ObjectIdGetDatum(address->objectId));
+	scan = systable_beginscan(catalog, DependDependerIndexId, true,
+							 NULL, 2, keys);
+	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+	{
+		Form_pg_depend dep = (Form_pg_depend) GETSTRUCT(tuple);
+
+		if (dep->objsubid == address->objectSubId &&
+			dep->refclassid == reference->classId &&
+			dep->refobjid == reference->objectId &&
+			dep->refobjsubid == reference->objectSubId &&
+			dep->deptype == deptype)
+		{
+			found = true;
+			if (remove)
+				CatalogTupleDelete(catalog, &tuple->t_self);
+		}
+	}
+	systable_endscan(scan);
+	if (!remove && !found)
+		recordDependencyOn(address, reference, deptype);
+	table_close(catalog, RowExclusiveLock);
+}
+
+/*
  * Executes an ALTER OBJECT / [NO] DEPENDS ON EXTENSION statement.
  *
  * Return value is the address of the altered object.  refAddress is an output
@@ -495,6 +545,25 @@ ExecAlterObjectDependsStmt(AlterObjectDependsStmt *stmt, ObjectAddress *refAddre
 	 */
 	if (rel)
 		table_close(rel, NoLock);
+
+	/* SQL DEPENDS ON EXTENSION retains the unmodified upstream path. */
+	if (stmt->extname == NULL)
+	{
+		if (stmt->refObject == NULL)
+			elog(ERROR, "missing generated object dependency target");
+		refAddr = get_object_address_rv(stmt->refObjectType,
+									   stmt->refRelation,
+									   (List *) stmt->refObject,
+									   &rel, AccessExclusiveLock, false);
+		if (rel)
+			table_close(rel, NoLock);
+		if (refAddress)
+			*refAddress = refAddr;
+		alterGeneratedObjectDependency(&address, &refAddr,
+									   stmt->deptype ? stmt->deptype : DEPENDENCY_AUTO,
+									   stmt->remove);
+		return address;
+	}
 
 	refAddr = get_object_address(OBJECT_EXTENSION, (Node *) stmt->extname,
 								 NULL, AccessExclusiveLock, false);

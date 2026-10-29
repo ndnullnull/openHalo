@@ -19,6 +19,7 @@
 #include "miscadmin.h"
 #include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
+#include "nodes/mysql/mys_parsenodes.h"
 #include "nodes/pathnodes.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
@@ -1668,6 +1669,15 @@ exprLocation(const Node *expr)
 			break;
 		case T_ParamRef:
 			loc = ((const ParamRef *) expr)->location;
+			break;
+		case T_UserVarRef:
+			loc = ((const UserVarRef *) expr)->location;
+			break;
+		case T_UserVarAssign:
+			loc = ((const UserVarAssign *) expr)->location;
+			break;
+		case T_SysVarRef:
+			loc = ((const SysVarRef *) expr)->location;
 			break;
 		case T_A_Const:
 			loc = ((const A_Const *) expr)->location;
@@ -4011,6 +4021,15 @@ raw_expression_tree_walker_impl(Node *node,
 
 	switch (nodeTag(node))
 	{
+		case T_UserVarAssign:
+			return WALK(((UserVarAssign *) node)->expr);
+		case T_MysVariableSetStmt:
+			return WALK(((MysVariableSetStmt *) node)->varSetStmt);
+		case T_MysSelectIntoStmt:
+			return WALK(((MysSelectIntoStmt *) node)->target) ||
+				WALK(((MysSelectIntoStmt *) node)->expr);
+		case T_UserVarRef:
+		case T_SysVarRef:
 		case T_JsonFormat:
 		case T_SetToDefault:
 		case T_CurrentOfExpr:
@@ -4263,6 +4282,13 @@ raw_expression_tree_walker_impl(Node *node,
 			{
 				DeleteStmt *stmt = (DeleteStmt *) node;
 
+				if (WALK(stmt->sortClause))
+					return true;
+				if (WALK(stmt->limitOffset))
+					return true;
+				if (WALK(stmt->limitCount))
+					return true;
+
 				if (WALK(stmt->relation))
 					return true;
 				if (WALK(stmt->usingClause))
@@ -4278,6 +4304,15 @@ raw_expression_tree_walker_impl(Node *node,
 		case T_UpdateStmt:
 			{
 				UpdateStmt *stmt = (UpdateStmt *) node;
+
+				if (WALK(stmt->sortClause))
+					return true;
+				if (WALK(stmt->limitOffset))
+					return true;
+				if (WALK(stmt->limitCount))
+					return true;
+				if (WALK(stmt->onClause))
+					return true;
 
 				if (WALK(stmt->relation))
 					return true;
@@ -4336,6 +4371,9 @@ raw_expression_tree_walker_impl(Node *node,
 		case T_SelectStmt:
 			{
 				SelectStmt *stmt = (SelectStmt *) node;
+
+				if (WALK(stmt->onClause))
+					return true;
 
 				if (WALK(stmt->distinctClause))
 					return true;

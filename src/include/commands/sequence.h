@@ -67,4 +67,6 @@ extern void seq_desc(StringInfo buf, XLogReaderState *record);
 extern const char *seq_identify(uint8 info);
 extern void seq_mask(char *page, BlockNumber blkno);
 
+extern void mys_setval3_oid(Oid relid, int64 next, bool iscalled);
+
 #endif							/* SEQUENCE_H */

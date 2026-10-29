@@ -88,6 +88,7 @@ static bool match_prosrc_to_literal(const char *prosrc, const char *literal,
  *	prosupport: OID of support function, if any (prosupport)
  *	procost: cost factor (procost)
  *	prorows: estimated output rows for a SRF (prorows)
+ *	proaccess: OpenHalo routine access metadata
  *
  * Note: allParameterTypes, parameterModes, parameterNames, trftypes, and proconfig
  * are either arrays of the proper types or NULL.  We declare them Datum,
@@ -122,7 +123,8 @@ ProcedureCreate(const char *procedureName,
 				Datum proconfig,
 				Oid prosupport,
 				float4 procost,
-				float4 prorows)
+				float4 prorows,
+				char proaccess)
 {
 	Oid			retval;
 	int			parameterCount;
@@ -331,6 +333,7 @@ ProcedureCreate(const char *procedureName,
 	values[Anum_pg_proc_prolang - 1] = ObjectIdGetDatum(languageObjectId);
 	values[Anum_pg_proc_procost - 1] = Float4GetDatum(procost);
 	values[Anum_pg_proc_prorows - 1] = Float4GetDatum(prorows);
+	values[Anum_pg_proc_proaccess - 1] = CharGetDatum(proaccess);
 	values[Anum_pg_proc_provariadic - 1] = ObjectIdGetDatum(variadicType);
 	values[Anum_pg_proc_prosupport - 1] = ObjectIdGetDatum(prosupport);
 	values[Anum_pg_proc_prokind - 1] = CharGetDatum(prokind);

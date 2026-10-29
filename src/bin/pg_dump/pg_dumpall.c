@@ -32,7 +32,7 @@
 #include "getopt_long.h"
 
 /* version string we expect back from pg_dump */
-#define PGDUMP_VERSIONSTR "pg_dump (PostgreSQL) " PG_VERSION "\n"
+#define PGDUMP_VERSIONSTR "pg_dump (Halo) " PG_VERSION_PREFIX PG_VERSION "\n"
 
 typedef struct
 {
@@ -223,7 +223,7 @@ main(int argc, char *argv[])
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
-			puts("pg_dumpall (PostgreSQL) " PG_VERSION);
+			puts("pg_dumpall (Halo) " PG_VERSION_PREFIX PG_VERSION);
 			exit_nicely(0);
 		}
 	}
@@ -591,7 +591,7 @@ main(int argc, char *argv[])
 	if (quote_all_identifiers)
 		executeCommand(conn, "SET quote_all_identifiers = true");
 
-	fprintf(OPF, "--\n-- PostgreSQL database cluster dump\n--\n\n");
+	fprintf(OPF, "--\n-- Halo database cluster dump\n--\n\n");
 	if (verbose)
 		dumpTimestamp("Started on");
 
@@ -678,7 +678,7 @@ main(int argc, char *argv[])
 
 	if (verbose)
 		dumpTimestamp("Completed on");
-	fprintf(OPF, "--\n-- PostgreSQL database cluster dump complete\n--\n\n");
+	fprintf(OPF, "--\n-- Halo database cluster dump complete\n--\n\n");
 
 	if (filename)
 	{

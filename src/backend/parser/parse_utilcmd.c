@@ -21,6 +21,7 @@
  */
 
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "access/amapi.h"
 #include "access/htup_details.h"
@@ -160,8 +161,8 @@ static Const *transformPartitionBoundValue(ParseState *pstate, Node *val,
  * then expand those into multiple IndexStmt blocks.
  *	  - thomas 1997-12-02
  */
-List *
-transformCreateStmt(CreateStmt *stmt, const char *queryString)
+static List *
+pg18_transformCreateStmt(CreateStmt *stmt, const char *queryString)
 {
 	ParseState *pstate;
 	CreateStmtContext cxt;
@@ -3540,8 +3541,8 @@ transformRuleStmt(RuleStmt *stmt, const char *queryString,
  * the passed-in relid (and not on stmt->relation) to determine the target
  * relation.
  */
-AlterTableStmt *
-transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
+static AlterTableStmt *
+pg18_transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 						const char *queryString,
 						List **beforeStmts, List **afterStmts)
 {
@@ -4673,4 +4674,26 @@ transformPartitionBoundValue(ParseState *pstate, Node *val,
 	((Const *) value)->location = exprLocation(val);
 
 	return (Const *) value;
+}
+
+List *
+transformCreateStmt(CreateStmt *stmt, const char *queryString)
+{
+	if (parserengine && parserengine->transformCreateStmt)
+	{
+		return parserengine->transformCreateStmt(stmt, queryString);
+	}
+	return pg18_transformCreateStmt(stmt, queryString);
+}
+
+AlterTableStmt *
+transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
+						const char *queryString,
+						List **beforeStmts, List **afterStmts)
+{
+	if (parserengine && parserengine->transformAlterTableStmt)
+	{
+		return parserengine->transformAlterTableStmt(relid, stmt, queryString, beforeStmts, afterStmts);
+	}
+	return pg18_transformAlterTableStmt(relid, stmt, queryString, beforeStmts, afterStmts);
 }

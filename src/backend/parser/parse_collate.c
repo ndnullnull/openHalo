@@ -39,6 +39,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "catalog/pg_aggregate.h"
 #include "catalog/pg_collation.h"
@@ -98,7 +99,7 @@ static void assign_hypothetical_collations(Aggref *aggref,
  * those should have been processed when built.
  */
 void
-assign_query_collations(ParseState *pstate, Query *query)
+standard_assign_query_collations(ParseState *pstate, Query *query)
 {
 	/*
 	 * We just use query_tree_walker() to visit all the contained expressions.
@@ -152,7 +153,7 @@ assign_query_collations_walker(Node *node, ParseState *pstate)
  * to share a common collation.
  */
 void
-assign_list_collations(ParseState *pstate, List *exprs)
+standard_assign_list_collations(ParseState *pstate, List *exprs)
 {
 	ListCell   *lc;
 
@@ -174,7 +175,7 @@ assign_list_collations(ParseState *pstate, List *exprs)
  * coerce_to_boolean().
  */
 void
-assign_expr_collations(ParseState *pstate, Node *expr)
+standard_assign_expr_collations(ParseState *pstate, Node *expr)
 {
 	assign_collations_context context;
 
@@ -205,7 +206,7 @@ assign_expr_collations(ParseState *pstate, Node *expr)
  * operations").
  */
 Oid
-select_common_collation(ParseState *pstate, List *exprs, bool none_ok)
+standard_select_common_collation(ParseState *pstate, List *exprs, bool none_ok)
 {
 	assign_collations_context context;
 
@@ -1055,4 +1056,41 @@ assign_hypothetical_collations(Aggref *aggref,
 		s_cell = lnext(aggref->args, s_cell);
 	}
 	Assert(h_cell == NULL && s_cell == NULL);
+}
+
+/* Replaceable engine entries; the standard bodies retain PG18 semantics. */
+
+void
+assign_query_collations(ParseState *pstate, Query *query)
+{
+	if (parserengine && parserengine->assign_query_collations)
+		parserengine->assign_query_collations(pstate, query);
+	else
+		standard_assign_query_collations(pstate, query);
+}
+
+void
+assign_list_collations(ParseState *pstate, List *exprs)
+{
+	if (parserengine && parserengine->assign_list_collations)
+		parserengine->assign_list_collations(pstate, exprs);
+	else
+		standard_assign_list_collations(pstate, exprs);
+}
+
+void
+assign_expr_collations(ParseState *pstate, Node *expr)
+{
+	if (parserengine && parserengine->assign_expr_collations)
+		parserengine->assign_expr_collations(pstate, expr);
+	else
+		standard_assign_expr_collations(pstate, expr);
+}
+
+Oid
+select_common_collation(ParseState *pstate, List *exprs, bool none_ok)
+{
+	if (parserengine && parserengine->select_common_collation)
+		return parserengine->select_common_collation(pstate, exprs, none_ok);
+	return standard_select_common_collation(pstate, exprs, none_ok);
 }

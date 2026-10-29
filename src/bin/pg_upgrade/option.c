@@ -100,7 +100,7 @@ parseCommandLine(int argc, char *argv[])
 		}
 		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
 		{
-			puts("pg_upgrade (PostgreSQL) " PG_VERSION);
+			puts("pg_upgrade (Halo) " PG_VERSION_PREFIX PG_VERSION);
 			exit(0);
 		}
 	}
@@ -303,7 +303,7 @@ parseCommandLine(int argc, char *argv[])
 static void
 usage(void)
 {
-	printf(_("pg_upgrade upgrades a PostgreSQL cluster to a different major version.\n\n"));
+	printf(_("pg_upgrade upgrades a Halo cluster to a different major version.\n\n"));
 	printf(_("Usage:\n"));
 	printf(_("  pg_upgrade [OPTION]...\n\n"));
 	printf(_("Options:\n"));

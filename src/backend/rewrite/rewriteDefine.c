@@ -13,6 +13,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "access/htup_details.h"
 #include "access/relation.h"
@@ -189,7 +190,7 @@ InsertRule(const char *rulname,
  *		Execute a CREATE RULE command.
  */
 ObjectAddress
-DefineRule(RuleStmt *stmt, const char *queryString)
+standard_DefineRule(RuleStmt *stmt, const char *queryString)
 {
 	List	   *actions;
 	Node	   *whereClause;
@@ -223,7 +224,7 @@ DefineRule(RuleStmt *stmt, const char *queryString)
  * action and qual have already been passed through parse analysis.
  */
 ObjectAddress
-DefineQueryRewrite(const char *rulename,
+standard_DefineQueryRewrite(const char *rulename,
 				   Oid event_relid,
 				   Node *event_qual,
 				   CmdType event_type,
@@ -615,7 +616,7 @@ checkRuleResultList(List *targetList, TupleDesc resultDesc, bool isSelect,
  *		field to the given userid in all RTEPermissionInfos of the query.
  */
 void
-setRuleCheckAsUser(Node *node, Oid userid)
+standard_setRuleCheckAsUser(Node *node, Oid userid)
 {
 	(void) setRuleCheckAsUser_walker(node, &userid);
 }
@@ -675,7 +676,7 @@ setRuleCheckAsUser_Query(Query *qry, Oid userid)
  * Change the firing semantics of an existing rule.
  */
 void
-EnableDisableRule(Relation rel, const char *rulename,
+standard_EnableDisableRule(Relation rel, const char *rulename,
 				  char fires_when)
 {
 	Relation	pg_rewrite_desc;
@@ -777,7 +778,7 @@ RangeVarCallbackForRenameRule(const RangeVar *rv, Oid relid, Oid oldrelid,
  * Rename an existing rewrite rule.
  */
 ObjectAddress
-RenameRewriteRule(RangeVar *relation, const char *oldName,
+standard_RenameRewriteRule(RangeVar *relation, const char *oldName,
 				  const char *newName)
 {
 	Oid			relid;
@@ -867,4 +868,51 @@ RenameRewriteRule(RangeVar *relation, const char *oldName,
 	relation_close(targetrel, NoLock);
 
 	return address;
+}
+
+/* Replaceable engine entries; the standard bodies retain PG18 semantics. */
+
+ObjectAddress
+DefineRule(RuleStmt *stmt, const char *queryString)
+{
+	if (parserengine && parserengine->rewrite && parserengine->rewrite->DefineRule)
+		return parserengine->rewrite->DefineRule(stmt, queryString);
+	return standard_DefineRule(stmt, queryString);
+}
+
+ObjectAddress
+DefineQueryRewrite(const char *rulename, Oid event_relid, Node *event_qual, CmdType event_type,
+							 bool is_instead, bool replace, List *action)
+{
+	if (parserengine && parserengine->rewrite && parserengine->rewrite->DefineQueryRewrite)
+		return parserengine->rewrite->DefineQueryRewrite(rulename, event_relid, event_qual,
+		event_type, is_instead, replace, action);
+	return standard_DefineQueryRewrite(rulename, event_relid, event_qual, event_type, is_instead,
+		replace, action);
+}
+
+ObjectAddress
+RenameRewriteRule(RangeVar *relation, const char *oldName, const char *newName)
+{
+	if (parserengine && parserengine->rewrite && parserengine->rewrite->RenameRewriteRule)
+		return parserengine->rewrite->RenameRewriteRule(relation, oldName, newName);
+	return standard_RenameRewriteRule(relation, oldName, newName);
+}
+
+void
+setRuleCheckAsUser(Node *node, Oid userid)
+{
+	if (parserengine && parserengine->rewrite && parserengine->rewrite->setRuleCheckAsUser)
+		parserengine->rewrite->setRuleCheckAsUser(node, userid);
+	else
+		standard_setRuleCheckAsUser(node, userid);
+}
+
+void
+EnableDisableRule(Relation rel, const char *rulename, char fires_when)
+{
+	if (parserengine && parserengine->rewrite && parserengine->rewrite->EnableDisableRule)
+		parserengine->rewrite->EnableDisableRule(rel, rulename, fires_when);
+	else
+		standard_EnableDisableRule(rel, rulename, fires_when);
 }

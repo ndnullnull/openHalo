@@ -13,6 +13,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "catalog/pg_cast.h"
 #include "catalog/pg_class.h"
@@ -254,6 +255,7 @@ coerce_type(ParseState *pstate, Node *node,
 		int32		baseTypeMod;
 		int32		inputTypeMod;
 		Type		baseType;
+		bool		mysqlBinaryLiteral;
 		ParseCallbackState pcbstate;
 
 		/*
@@ -266,6 +268,10 @@ coerce_type(ParseState *pstate, Node *node,
 		 */
 		baseTypeMod = targetTypeMod;
 		baseTypeId = getBaseTypeAndTypmod(targetTypeId, &baseTypeMod);
+		mysqlBinaryLiteral = parserengine &&
+			parserengine->compat_mode == MYSQL_COMPAT_MODE &&
+			baseTypeId == BYTEAOID &&
+			(ccontext != COERCION_EXPLICIT || targetTypeId != BYTEAOID);
 
 		/*
 		 * For most types we pass typmod -1 to the input routine, because
@@ -307,7 +313,25 @@ coerce_type(ParseState *pstate, Node *node,
 		 * We assume here that UNKNOWN's internal representation is the same
 		 * as CSTRING.
 		 */
-		if (!con->constisnull)
+		if (!con->constisnull && mysqlBinaryLiteral)
+		{
+			const char *str = DatumGetCString(con->constvalue);
+			Size		len = strlen(str);
+			bytea	   *bytes = palloc(VARHDRSZ + len);
+
+			/*
+			 * The MySQL scanner has already processed SQL string escapes.
+			 * An assignment to BLOB/BINARY must keep those bytes, rather
+			 * than interpret them again as PostgreSQL bytea input syntax.
+			 * Literals containing NUL or invalid encoding arrive as typed
+			 * bytea constants.  Explicit casts to pg_catalog.bytea retain
+			 * its input syntax, including the scanner's generated hex cast.
+			 */
+			SET_VARSIZE(bytes, VARHDRSZ + len);
+			memcpy(VARDATA(bytes), str, len);
+			newcon->constvalue = PointerGetDatum(bytes);
+		}
+		else if (!con->constisnull)
 			newcon->constvalue = stringTypeDatum(baseType,
 												 DatumGetCString(con->constvalue),
 												 inputTypeMod);
@@ -338,7 +362,7 @@ coerce_type(ParseState *pstate, Node *node,
 		 * identical may not get recognized as such.  See pgsql-hackers
 		 * discussion of 2008-04-04.
 		 */
-		if (!con->constisnull && !newcon->constbyval)
+		if (!con->constisnull && !newcon->constbyval && !mysqlBinaryLiteral)
 		{
 			Datum		val2;
 
@@ -3175,6 +3199,21 @@ find_coercion_pathway(Oid targetTypeId, Oid sourceTypeId,
 	/* Reject all cases of casting something else to/from "internal" */
 	if (sourceTypeId == INTERNALOID || targetTypeId == INTERNALOID)
 		return COERCION_PATH_NONE;
+
+	/* PG18's bytea/integer casts interpret binary bytes, while OpenHalo's
+	 * MySQL assignment casts parse decimal text.  Keep the catalog native. */
+	if (parserengine && parserengine->compat_mode == MYSQL_COMPAT_MODE &&
+		sourceTypeId == BYTEAOID && ccontext >= COERCION_ASSIGNMENT &&
+		(targetTypeId == INT2OID || targetTypeId == INT4OID || targetTypeId == INT8OID))
+	{
+		const char *name = targetTypeId == INT2OID ? "bytea2int2" :
+			(targetTypeId == INT4OID ? "bytea2int4" : "bytea2int8");
+		Oid argtype = BYTEAOID;
+
+		*funcid = LookupFuncName(list_make2(makeString("mysql"), makeString(pstrdup(name))),
+								1, &argtype, false);
+		return COERCION_PATH_FUNC;
+	}
 
 	/* Look in pg_cast */
 	tuple = SearchSysCache2(CASTSOURCETARGET,

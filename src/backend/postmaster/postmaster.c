@@ -64,6 +64,8 @@
  */
 
 #include "postgres.h"
+#include "adapter/mysql/adapter.h"
+#include "parser/parsereng.h"
 
 #include <unistd.h>
 #include <signal.h>
@@ -233,6 +235,7 @@ int			ReservedConnections;
 #define MAXLISTEN	64
 static int	NumListenSockets = 0;
 static pgsocket *ListenSockets = NULL;
+static ProtocolKind ListenProtocols[MAXLISTEN];
 
 /* still more option variables */
 bool		EnableSSL = false;
@@ -1269,6 +1272,14 @@ PostmasterMain(int argc, char *argv[])
 	/*
 	 * check that we have some socket to listen on
 	 */
+	if (halo_mysql_listener_on)
+	{
+		if (database_compat_mode != MYSQL_COMPAT_MODE)
+			ereport(FATAL,
+					(errmsg("second listener only works for MySQL mode")));
+		getMysProtocolHandler()->listen_init();
+	}
+
 	if (NumListenSockets == 0)
 		ereport(FATAL,
 				(errmsg("no socket created for listening")));
@@ -1700,7 +1711,17 @@ ServerLoop(void)
 				ClientSocket s;
 
 				if (AcceptConnection(events[i].fd, &s) == STATUS_OK)
+				{
+					int listener;
+
+					for (listener = 0; listener < NumListenSockets; listener++)
+						if (ListenSockets[listener] == events[i].fd)
+						{
+							s.protocol_kind = ListenProtocols[listener];
+							break;
+						}
 					BackendStartup(&s);
+				}
 
 				/* We no longer need the open socket in this process */
 				if (s.sock != PGINVALID_SOCKET)
@@ -3514,6 +3535,23 @@ TerminateChildren(int signal)
  * Note: if you change this code, also consider StartAutovacuumWorker and
  * StartBackgroundWorker.
  */
+/* Add a protocol listener using PG18's socket setup, permissions and cleanup. */
+int
+OpenHaloListen(int family, const char *host, unsigned short port,
+			   const char *socket_dir, ProtocolKind protocol_kind)
+{
+	int first = NumListenSockets;
+	int status;
+	int i;
+
+	Assert(protocol_kind == PROTOCOL_MYSQL);
+	status = ListenServerPort(family, host, port, socket_dir,
+							  ListenSockets, &NumListenSockets, MAXLISTEN);
+	for (i = first; i < NumListenSockets; i++)
+		ListenProtocols[i] = protocol_kind;
+	return status;
+}
+
 static int
 BackendStartup(ClientSocket *client_sock)
 {

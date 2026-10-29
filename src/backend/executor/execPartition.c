@@ -12,6 +12,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "executor/executor_engine.h"
 
 #include "access/table.h"
 #include "access/tableam.h"
@@ -262,7 +263,7 @@ ExecSetupPartitionTupleRouting(EState *estate, Relation rel)
  * is not a valid target for an INSERT.
  */
 ResultRelInfo *
-ExecFindPartition(ModifyTableState *mtstate,
+standard_ExecFindPartition(ModifyTableState *mtstate,
 				  ResultRelInfo *rootResultRelInfo,
 				  PartitionTupleRouting *proute,
 				  TupleTableSlot *slot, EState *estate)

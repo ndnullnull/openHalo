@@ -11,6 +11,7 @@ numeric_backend_lib = static_library('numeric_backend_lib',
 backend_link_with += numeric_backend_lib
 
 backend_sources += files(
+  'adtext.c',
   'acl.c',
   'amutils.c',
   'array_expanded.c',
@@ -146,3 +147,5 @@ backend_link_with += static_library('jsonpath',
 )
 
 #generated_backend_sources += jsonpath_gram.to_list()
+
+backend_sources += files('mysql/mys_adtext.c', 'mysql/mys_date.c', 'mysql/mys_timestamp.c')

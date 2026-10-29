@@ -113,6 +113,7 @@ typedef struct core_yy_extra_type
 	/* state variables for literal-lexing warnings */
 	bool		warn_on_first_escape;
 	bool		saw_non_ascii;
+	bool saw_underscore_binary;	/* MySQL _binary literal prefix */
 } core_yy_extra_type;
 
 /*

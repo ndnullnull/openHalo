@@ -39,6 +39,8 @@
 #include "executor/tqueue.h"
 #include "executor/tstoreReceiver.h"
 #include "libpq/libpq.h"
+#include "libpq/libpq-be.h"
+#include "miscadmin.h"
 #include "libpq/pqformat.h"
 
 
@@ -177,6 +179,13 @@ EndCommand(const QueryCompletion *qc, CommandDest dest, bool force_undecorated_o
 		case DestRemoteExecute:
 		case DestRemoteSimple:
 
+			if (MyProcPort && MyProcPort->protocol_handler &&
+				MyProcPort->protocol_handler->end_command)
+			{
+				MyProcPort->protocol_handler->end_command(qc, dest);
+				break;
+			}
+
 			len = BuildQueryCompletionString(completionTag, qc,
 											 force_undecorated_output);
 			pq_putmessage(PqMsg_CommandComplete, completionTag, len + 1);
@@ -223,6 +232,15 @@ NullCommand(CommandDest dest)
 		case DestRemoteExecute:
 		case DestRemoteSimple:
 
+			if (MyProcPort && MyProcPort->protocol_handler &&
+				MyProcPort->protocol_handler->end_command)
+			{
+				QueryCompletion qc;
+
+				InitializeQueryCompletion(&qc);
+				MyProcPort->protocol_handler->end_command(&qc, dest);
+				break;
+			}
 			/* Tell the FE that we saw an empty query string */
 			pq_putemptymessage(PqMsg_EmptyQueryResponse);
 			break;
@@ -260,6 +278,12 @@ ReadyForQuery(CommandDest dest)
 		case DestRemote:
 		case DestRemoteExecute:
 		case DestRemoteSimple:
+			if (MyProcPort && MyProcPort->protocol_handler &&
+				MyProcPort->protocol_handler->send_ready_for_query)
+			{
+				MyProcPort->protocol_handler->send_ready_for_query(dest);
+				break;
+			}
 			{
 				StringInfoData buf;
 

@@ -78,6 +78,9 @@ sub new
 
 	chomp $arg;
 
+	# OpenHalo's product prefix is separate from the PostgreSQL kernel version.
+	$arg =~ s/^(?:\(?Halo\)?|openHalo)\s+1\.0\.//;
+
 	# Accept standard formats, in case caller has handed us the output of a
 	# postgres command line tool
 	my $devel;

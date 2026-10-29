@@ -14,6 +14,7 @@
  */
 
 #include "postgres.h"
+#include "utils/adtext.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -37,6 +38,8 @@
 #include "utils/datetime.h"
 #include "utils/float.h"
 #include "utils/numeric.h"
+#include "utils/mysql/mys_compat.h"
+#include "utils/mysql/mys_timestamp.h"
 #include "utils/skipsupport.h"
 #include "utils/sortsupport.h"
 
@@ -184,6 +187,15 @@ timestamp_in(PG_FUNCTION_ARGS)
 	char		workbuf[MAXDATELEN + MAXDATEFIELDS];
 	DateTimeErrorExtra extra;
 
+	if (adtext && adtext->timestamp_in)
+		return adtext->timestamp_in(fcinfo);
+	if (adtext && adtext->pre_timestamp_in)
+	{
+		str = adtext->pre_timestamp_in(str);
+		if (str == NULL)
+			elog(ERROR, "Incorrect datetime value.");
+	}
+
 	dterr = ParseDateTime(str, workbuf, sizeof(workbuf),
 						  field, ftype, MAXDATEFIELDS, &nf);
 	if (dterr == 0)
@@ -248,6 +260,9 @@ timestamp_out(PG_FUNCTION_ARGS)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
 				 errmsg("timestamp out of range")));
+
+	if (adtext && adtext->post_timestamp_out)
+		adtext->post_timestamp_out(&timestamp, DateStyle, buf);
 
 	result = pstrdup(buf);
 	PG_RETURN_CSTRING(result);

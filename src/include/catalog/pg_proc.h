@@ -76,6 +76,9 @@ CATALOG(pg_proc,1255,ProcedureRelationId) BKI_BOOTSTRAP BKI_ROWTYPE_OID(81,Proce
 	/* see PROPARALLEL_ categories below */
 	char		proparallel BKI_DEFAULT(s);
 
+	/* OpenHalo routine access metadata (n = non-package member). */
+	char		proaccess BKI_DEFAULT(n);
+
 	/* number of arguments */
 	/* Note: need not be given in pg_proc.dat; genbki.pl will compute it */
 	int16		pronargs;
@@ -188,6 +191,8 @@ MAKE_SYSCACHE(PROCNAMEARGSNSP, pg_proc_proname_args_nsp_index, 128);
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 
 
+#define NON_PACKAGE_MEMBER 'n'
+
 extern ObjectAddress ProcedureCreate(const char *procedureName,
 									 Oid procNamespace,
 									 bool replace,
@@ -215,7 +220,8 @@ extern ObjectAddress ProcedureCreate(const char *procedureName,
 									 Datum proconfig,
 									 Oid prosupport,
 									 float4 procost,
-									 float4 prorows);
+									 float4 prorows,
+									 char proaccess);
 
 extern bool function_parse_error_transpose(const char *prosrc);
 

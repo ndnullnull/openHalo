@@ -50,6 +50,7 @@
 #include "access/parallel.h"
 #include "catalog/pg_authid.h"
 #include "common/int.h"
+#include "commands/dbcommands.h"
 #include "executor/instrument.h"
 #include "funcapi.h"
 #include "jit/jit.h"
@@ -68,8 +69,10 @@
 #include "tcop/utility.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
+#include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/timestamp.h"
+#include "utils/varlena.h"
 
 PG_MODULE_MAGIC_EXT(
 					.name = "pg_stat_statements",
@@ -299,6 +302,11 @@ static bool pgss_track_planning = false;	/* whether to track planning
 											 * duration */
 static bool pgss_save = true;	/* whether to save stats across shutdown */
 
+static char *pgss_untrack_dbnames = NULL;
+static List *pgss_untrack_names = NIL;
+static List *pgss_untrack_oids = NIL;
+static bool pgss_untrack_initialized = false;
+
 #define pgss_enabled(level) \
 	(!IsParallelWorker() && \
 	(pgss_track == PGSS_TRACK_ALL || \
@@ -376,6 +384,9 @@ static char *generate_normalized_query(JumbleState *jstate, const char *query,
 static void fill_in_constant_lengths(JumbleState *jstate, const char *query,
 									 int query_loc);
 static int	comp_location(const void *a, const void *b);
+static bool check_pgss_untrack_dbnames(char **newval, void **extra, GucSource source);
+static void assign_pgss_untrack_dbnames(const char *newval, void *extra);
+static bool pgss_database_is_untracked(Oid dbid);
 
 
 /*
@@ -461,6 +472,17 @@ _PG_init(void)
 							 NULL,
 							 NULL,
 							 NULL);
+
+	DefineCustomStringVariable("pg_stat_statements.untrack_dbnames",
+							   "Selects which databases are untracked by pg_stat_statements.",
+							   NULL,
+							   &pgss_untrack_dbnames,
+							   "",
+							   PGC_SUSET,
+							   GUC_LIST_INPUT | GUC_NOT_IN_SAMPLE,
+							   check_pgss_untrack_dbnames,
+							   assign_pgss_untrack_dbnames,
+							   NULL);
 
 	MarkGUCPrefixReserved("pg_stat_statements");
 
@@ -1299,6 +1321,9 @@ pgss_store(const char *query, int64 queryId,
 
 	/* Safety check... */
 	if (!pgss || !pgss_hash)
+		return;
+
+	if (pgss_database_is_untracked(MyDatabaseId))
 		return;
 
 	/*
@@ -3032,4 +3057,72 @@ comp_location(const void *a, const void *b)
 	int			r = ((const LocationLen *) b)->location;
 
 	return pg_cmp_s32(l, r);
+}
+
+static bool
+check_pgss_untrack_dbnames(char **newval, void **extra, GucSource source)
+{
+	char	   *raw = pstrdup(*newval);
+	List	   *names = NIL;
+	bool		valid = SplitIdentifierString(raw, ',', &names);
+
+	list_free(names);
+	pfree(raw);
+	if (!valid)
+		GUC_check_errdetail("Invalid untrack_dbnames value");
+	return valid;
+}
+
+static void
+assign_pgss_untrack_dbnames(const char *newval, void *extra)
+{
+	char	   *raw = pstrdup(newval);
+	List	   *names = NIL;
+	ListCell   *lc;
+	MemoryContext oldcontext;
+
+	/* The check hook has already validated the identifier list. */
+	if (!SplitIdentifierString(raw, ',', &names))
+		elog(ERROR, "invalid untrack_dbnames value");
+	list_free_deep(pgss_untrack_names);
+	list_free(pgss_untrack_oids);
+	pgss_untrack_names = NIL;
+	pgss_untrack_oids = NIL;
+	pgss_untrack_initialized = false;
+	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+	foreach(lc, names)
+		pgss_untrack_names = lappend(pgss_untrack_names, pstrdup(lfirst(lc)));
+	MemoryContextSwitchTo(oldcontext);
+	list_free(names);
+	pfree(raw);
+}
+
+static bool
+pgss_database_is_untracked(Oid dbid)
+{
+	ListCell   *lc;
+	MemoryContext oldcontext;
+
+	if (pgss_untrack_names == NIL || !OidIsValid(dbid))
+		return false;
+	if (!pgss_untrack_initialized)
+	{
+		/* Resolve lazily: assignment also runs before database connection. */
+		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		foreach(lc, pgss_untrack_names)
+		{
+			const char *name = lfirst(lc);
+			Oid			oid = get_database_oid(name, true);
+
+			if (OidIsValid(oid))
+				pgss_untrack_oids = lappend_oid(pgss_untrack_oids, oid);
+			else
+				ereport(WARNING,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid database name \"%s\"", name)));
+		}
+		MemoryContextSwitchTo(oldcontext);
+		pgss_untrack_initialized = true;
+	}
+	return list_member_oid(pgss_untrack_oids, dbid);
 }

@@ -12,6 +12,7 @@ override CPPFLAGS := -I. -I$(srcdir) $(CPPFLAGS)
 
 # keep this list arranged alphabetically or it gets to be a mess
 OBJS = \
+	adtext.o \
 	acl.o \
 	amutils.o \
 	array_expanded.o \
@@ -148,5 +149,7 @@ like.o: like.c like_match.c
 numeric.o: CFLAGS += ${CFLAGS_VECTORIZE}
 
 varlena.o: varlena.c levenshtein.c
+
+SUBDIRS = mysql
 
 include $(top_srcdir)/src/backend/common.mk

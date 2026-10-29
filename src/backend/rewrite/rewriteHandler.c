@@ -19,6 +19,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "access/relation.h"
 #include "access/sysattr.h"
@@ -4632,7 +4633,7 @@ build_generation_expression(Relation rel, int attrno)
  * or have been scanned by AcquireRewriteLocks to acquire suitable locks.
  */
 List *
-QueryRewrite(Query *parsetree)
+standard_QueryRewrite(Query *parsetree)
 {
 	int64		input_query_id = parsetree->queryId;
 	List	   *querylist;
@@ -4721,4 +4722,14 @@ QueryRewrite(Query *parsetree)
 		lastInstead->canSetTag = true;
 
 	return results;
+}
+
+/* Replaceable engine entries; the standard bodies retain PG18 semantics. */
+
+List *
+QueryRewrite(Query *parsetree)
+{
+	if (parserengine && parserengine->rewrite && parserengine->rewrite->QueryRewrite)
+		return parserengine->rewrite->QueryRewrite(parsetree);
+	return standard_QueryRewrite(parsetree);
 }

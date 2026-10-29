@@ -14,6 +14,7 @@
  */
 
 #include "postgres.h"
+#include "optimizer/planner_engine.h"
 
 #include <limits.h>
 #include <math.h>
@@ -302,14 +303,23 @@ planner(Query *parse, const char *query_string, int cursorOptions,
 {
 	PlannedStmt *result;
 
-	if (planner_hook)
-		result = (*planner_hook) (parse, query_string, cursorOptions, boundParams);
+	if (plannerengine && plannerengine->planner)
+		result = plannerengine->planner(parse, query_string, cursorOptions, boundParams);
 	else
-		result = standard_planner(parse, query_string, cursorOptions, boundParams);
+		result = standard_plannerWithHooks(parse, query_string, cursorOptions, boundParams);
 
 	pgstat_report_plan_id(result->planId, false);
 
 	return result;
+}
+
+PlannedStmt *
+standard_plannerWithHooks(Query *parse, const char *query_string,
+						 int cursorOptions, ParamListInfo boundParams)
+{
+	if (planner_hook)
+		return (*planner_hook) (parse, query_string, cursorOptions, boundParams);
+	return standard_planner(parse, query_string, cursorOptions, boundParams);
 }
 
 PlannedStmt *

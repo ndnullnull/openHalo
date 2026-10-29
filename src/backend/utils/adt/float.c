@@ -27,6 +27,7 @@
 #include "utils/float.h"
 #include "utils/fmgrprotos.h"
 #include "utils/sortsupport.h"
+#include "utils/mysql/mys_compat.h"
 
 
 /*
@@ -164,6 +165,9 @@ Datum
 float4in(PG_FUNCTION_ARGS)
 {
 	char	   *num = PG_GETARG_CSTRING(0);
+
+	if (MySQLNonStrictEmptyInput(num))
+		PG_RETURN_FLOAT4(0.0);
 
 	PG_RETURN_FLOAT4(float4in_internal(num, NULL, "real", num,
 									   fcinfo->context));
@@ -402,6 +406,13 @@ float8in_internal(char *num, char **endptr_p,
 	/* skip leading whitespace */
 	while (*num != '\0' && isspace((unsigned char) *num))
 		num++;
+
+	if (MySQLNonStrictEmptyInput(num))
+	{
+		if (endptr_p)
+			*endptr_p = num;
+		return 0.0;
+	}
 
 	/*
 	 * Check for an empty-string input to begin with, to avoid the vagaries of

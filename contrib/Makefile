@@ -5,6 +5,7 @@ top_builddir = ..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = \
+	aux_mysql \
 		amcheck		\
 		auth_delay	\
 		auto_explain	\

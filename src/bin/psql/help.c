@@ -1,6 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
+ * Portions Copyright (c) 2021, Halo Tech Co,.Ltd.
  * Copyright (c) 2000-2025, PostgreSQL Global Development Group
  *
  * src/bin/psql/help.c
@@ -57,7 +58,7 @@ usage(unsigned short int pager)
 	 */
 	initPQExpBuffer(&buf);
 
-	HELP0("psql is the PostgreSQL interactive terminal.\n\n");
+	HELP0("psql is the Halo interactive terminal.\n\n");
 	HELP0("Usage:\n");
 	HELP0("  psql [OPTION]... [DBNAME [USERNAME]]\n\n");
 
@@ -115,7 +116,7 @@ usage(unsigned short int pager)
 	HELP0("  -W, --password           force password prompt (should happen automatically)\n");
 
 	HELP0("\nFor more information, type \"\\?\" (for internal commands) or \"\\help\" (for SQL\n"
-		  "commands) from within psql, or consult the psql section in the PostgreSQL\n"
+		  "commands) from within psql, or consult the psql section in the Halo\n"
 		  "documentation.\n\n");
 	HELPN("Report bugs to <%s>.\n", PACKAGE_BUGREPORT);
 	HELPN("%s home page: <%s>\n", PACKAGE_NAME, PACKAGE_URL);
@@ -161,7 +162,7 @@ slashUsage(unsigned short int pager)
 	initPQExpBuffer(&buf);
 
 	HELP0("General\n");
-	HELP0("  \\copyright             show PostgreSQL usage and distribution terms\n");
+	HELP0("  \\copyright             show Halo usage and distribution terms\n");
 	HELP0("  \\crosstabview [COLUMNS] execute query and display result in crosstab\n");
 	HELP0("  \\errverbose            show most recent error message at maximum verbosity\n");
 	HELP0("  \\g [(OPTIONS)] [FILE]  execute query (and send result to file or |pipe);\n"
@@ -754,22 +755,13 @@ helpSQL(const char *topic, unsigned short int pager)
 void
 print_copyright(void)
 {
-	puts("PostgreSQL Database Management System\n"
-		 "(also known as Postgres, formerly known as Postgres95)\n\n"
-		 "Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group\n\n"
-		 "Portions Copyright (c) 1994, The Regents of the University of California\n\n"
-		 "Permission to use, copy, modify, and distribute this software and its\n"
-		 "documentation for any purpose, without fee, and without a written agreement\n"
-		 "is hereby granted, provided that the above copyright notice and this\n"
-		 "paragraph and the following two paragraphs appear in all copies.\n\n"
-		 "IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY FOR\n"
-		 "DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, INCLUDING\n"
-		 "LOST PROFITS, ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS\n"
-		 "DOCUMENTATION, EVEN IF THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE\n"
-		 "POSSIBILITY OF SUCH DAMAGE.\n\n"
-		 "THE UNIVERSITY OF CALIFORNIA SPECIFICALLY DISCLAIMS ANY WARRANTIES,\n"
-		 "INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY\n"
-		 "AND FITNESS FOR A PARTICULAR PURPOSE.  THE SOFTWARE PROVIDED HEREUNDER IS\n"
-		 "ON AN \"AS IS\" BASIS, AND THE UNIVERSITY OF CALIFORNIA HAS NO OBLIGATIONS TO\n"
-		 "PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.\n");
+	puts("\nHalo Database Management System\n\n"
+		 "Copyright (c) 2021-2023, Halo Tech Co.,Ltd. All rights reserved.\n\n"
+		 "易景科技是Halo Database、Halo Database Management System、羲和数据库、羲和数据库管理系统（后面简称 Halo ）软件\n"
+		 "的发明人同时也为知识产权权利人。 Halo 软件的知识产权，以及与本软件相关的所有信息内容（包括但不限于文字、图片、音频、视频、图\n"
+		 "表、界面设计、版面框架、有关数据或电子文档等）均受中华人民共和国法律法规和相应的国际条约保护，易景科技享有上述知识产权，但\n"
+		 "相关权利人依照法律规定应享有的权利除外。未免疑义，本条所指的“知识产权”是指任何及所有基于 Halo 软件产生的：（a）版权、商标、\n"
+		 "商号、域名、与商标和商号相关的商誉、设计和专利；与创新、技术诀窍、商业秘密、保密技术、非技术信息相关的权利；（b）人身权、掩模\n"
+		 "作品权、署名权和发表权；以及（c）在本协议生效之前已存在或此后出现在世界任何地方的其他工业产权、专有权、与“知识产权”相关的权利，\n"
+		 "以及上述权利的所有续期和延长，无论此类权利是否已在相关法域内的相关机构注册。\n\n");
 }

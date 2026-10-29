@@ -14,6 +14,7 @@
  */
 
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "catalog/pg_aggregate.h"
 #include "catalog/pg_type.h"
@@ -115,8 +116,8 @@ static Node *make_nulltest_from_distinct(ParseState *pstate,
  *	  done here.  This processing converts the raw grammar output into
  *	  expression trees with fully determined semantics.
  */
-Node *
-transformExpr(ParseState *pstate, Node *expr, ParseExprKind exprKind)
+static Node *
+pg18_transformExpr(ParseState *pstate, Node *expr, ParseExprKind exprKind)
 {
 	Node	   *result;
 	ParseExprKind sv_expr_kind;
@@ -846,6 +847,9 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 							NameListToString(cref->fields)),
 					 parser_errposition(pstate, cref->location)));
 	}
+
+	if (node == NULL)
+		node = finalTransformColumnRef(pstate, cref);
 
 	/*
 	 * Throw error if no translation found.
@@ -4978,4 +4982,22 @@ GetJsonBehaviorConst(JsonBehaviorType btype, int location)
 	con->location = location;
 
 	return (Node *) con;
+}
+
+Node *
+transformExpr(ParseState *pstate, Node *expr, ParseExprKind exprKind)
+{
+	if (parserengine && parserengine->transformExpr)
+	{
+		return parserengine->transformExpr(pstate, expr, exprKind);
+	}
+	return pg18_transformExpr(pstate, expr, exprKind);
+}
+
+Node *
+finalTransformColumnRef(ParseState *pstate, ColumnRef *cref)
+{
+	if (parserengine && parserengine->finalTransformColumnRef)
+		return parserengine->finalTransformColumnRef(pstate, cref);
+	return NULL;
 }

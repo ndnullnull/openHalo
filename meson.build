@@ -6,10 +6,10 @@
 #  - https://mesonbuild.com/Syntax.html
 #  - https://mesonbuild.com/Reference-manual.html
 
-project('postgresql',
+project('openHalo',
   ['c'],
   version: '18.6',
-  license: 'PostgreSQL',
+  license: 'See COPYRIGHT, LICENSE and 3party-legal-notices',
 
   # We want < 0.56 for python 3.5 compatibility on old platforms. EPEL for
   # RHEL 7 has 0.55. < 0.54 would require replacing some uses of the fs
@@ -136,14 +136,15 @@ pg_version_major = pg_version_arr[0].to_int()
 pg_version_minor = pg_version_arr[1].to_int()
 pg_version_num = (pg_version_major * 10000) + pg_version_minor
 
-pg_url = 'https://www.postgresql.org/'
+pg_url = 'https://www.halodbtech.com/'
 
-cdata.set_quoted('PACKAGE_NAME', 'PostgreSQL')
-cdata.set_quoted('PACKAGE_BUGREPORT', 'pgsql-bugs@lists.postgresql.org')
+cdata.set_quoted('PACKAGE_NAME', 'Halo')
+cdata.set_quoted('PACKAGE_BUGREPORT', 'halo-bugs@halodbtech.com')
 cdata.set_quoted('PACKAGE_URL', pg_url)
 cdata.set_quoted('PACKAGE_VERSION', pg_version)
-cdata.set_quoted('PACKAGE_STRING', 'PostgreSQL @0@'.format(pg_version))
-cdata.set_quoted('PACKAGE_TARNAME', 'postgresql')
+cdata.set_quoted('PACKAGE_STRING', 'Halo @0@'.format(pg_version))
+cdata.set_quoted('PACKAGE_TARNAME', 'halo')
+cdata.set_quoted('PG_VERSION_PREFIX', '1.0.')
 
 pg_version += get_option('extra_version')
 cdata.set_quoted('PG_VERSION', pg_version)
@@ -3004,7 +3005,7 @@ cdata.set_quoted('DLSUFFIX', dlsuffix)
 
 # built later than the rest of the version metadata, we need SIZEOF_VOID_P
 cdata.set_quoted('PG_VERSION_STR',
-  'PostgreSQL @0@ on @1@-@2@, compiled by @3@-@4@, @5@-bit'.format(
+  'openHalo 1.0.@0@ on @1@-@2@, compiled by @3@-@4@, @5@-bit'.format(
     pg_version, host_machine.cpu_family(), host_system,
     cc.get_id(), cc.version(), cdata.get('SIZEOF_VOID_P') * 8,
   )
@@ -3392,6 +3393,8 @@ test_install_libs = []
 # few regression tests depend on contrib files.
 
 subdir('src')
+
+install_data('COPYRIGHT', 'LICENSE', '3party-legal-notices', install_dir: dir_data)
 
 subdir('contrib')
 

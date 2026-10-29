@@ -14,6 +14,13 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "adapter/mysql/adapter.h"
+#include "parser/parsereng.h"
+#include "parser/mysql/mys_parser.h"
+#include "optimizer/planner_engine.h"
+#include "executor/executor_engine.h"
+#include "utils/adtext.h"
+#include "utils/funcext.h"
 
 #include <ctype.h>
 #include <fcntl.h>
@@ -28,6 +35,7 @@
 #include "access/xlog.h"
 #include "access/xloginsert.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_namespace.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_database.h"
@@ -250,7 +258,14 @@ PerformAuthentication(Port *port)
 	 * Now perform authentication exchange.
 	 */
 	set_ps_display("authentication");
-	ClientAuthentication(port); /* might not return, if failure */
+	if (port->protocol_handler && port->protocol_handler->authenticate)
+	{
+		const char *username = port->user_name;
+
+		port->protocol_handler->authenticate(port, &username);
+	}
+	else
+		ClientAuthentication(port); /* might not return, if failure */
 
 	/*
 	 * Done with authentication.  Disable the timeout, and log if needed.
@@ -898,6 +913,12 @@ InitPostgres(const char *in_dbname, Oid dboid,
 		/* normal multiuser case */
 		Assert(MyProcPort != NULL);
 		PerformAuthentication(MyProcPort);
+		if (MyProcPort->protocol_handler &&
+			MyProcPort->protocol_handler->type == PROTOCOL_MYSQL)
+		{
+			username = MyProcPort->user_name;
+			in_dbname = "halo0root";
+		}
 		InitializeSessionUserId(username, useroid, false);
 		/* ensure that auth_method is actually valid, aka authn_id is not NULL */
 		if (MyClientConnectionInfo.authn_id)
@@ -1216,6 +1237,28 @@ InitPostgres(const char *in_dbname, Oid dboid,
 
 	/* Initialize this backend's session state. */
 	InitializeSession();
+	InitParserEngine();
+	InitPlannerEngine();
+	InitExecutorEngine();
+	InitADTExt();
+	InitFmgrExtension();
+
+	if (MyProcPort && MyProcPort->protocol_handler &&
+		MyProcPort->protocol_handler->type == PROTOCOL_MYSQL)
+	{
+		if (MyProcPort->database_name[0] != '\0')
+		{
+			const char *name = mysSystemSchemaName(MyProcPort->database_name);
+			Oid namespace = get_namespace_oid(name, false);
+			AclResult aclresult = object_aclcheck(NamespaceRelationId,
+											 namespace, GetUserId(), ACL_USAGE);
+
+			if (aclresult != ACLCHECK_OK)
+				aclcheck_error(aclresult, OBJECT_SCHEMA, name);
+		}
+		mysqlInitializeSession();
+		getCaseInsensitiveId();
+	}
 
 	/*
 	 * If this is an interactive session, load any libraries that should be

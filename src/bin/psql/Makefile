@@ -66,12 +66,14 @@ tab-complete.c: gen_tabcomplete.pl tab-complete.in.c
 
 install: all installdirs
 	$(INSTALL_PROGRAM) psql$(X) '$(DESTDIR)$(bindir)/psql$(X)'
+	$(INSTALL_PROGRAM) $(srcdir)/hsql '$(DESTDIR)$(bindir)/hsql'
 	$(INSTALL_DATA) $(srcdir)/psqlrc.sample '$(DESTDIR)$(datadir)/psqlrc.sample'
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(bindir)' '$(DESTDIR)$(datadir)'
 
 uninstall:
+	rm -f '$(DESTDIR)$(bindir)/hsql'
 	rm -f '$(DESTDIR)$(bindir)/psql$(X)' '$(DESTDIR)$(datadir)/psqlrc.sample'
 
 clean distclean:

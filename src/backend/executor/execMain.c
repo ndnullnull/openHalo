@@ -36,6 +36,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "executor/executor_engine.h"
 
 #include "access/sysattr.h"
 #include "access/table.h"
@@ -131,6 +132,15 @@ ExecutorStart(QueryDesc *queryDesc, int eflags)
 	 */
 	pgstat_report_query_id(queryDesc->plannedstmt->queryId, false);
 
+	if (executorengine && executorengine->ExecutorStart)
+		executorengine->ExecutorStart(queryDesc, eflags);
+	else
+		standard_ExecutorStartWithHooks(queryDesc, eflags);
+}
+
+void
+standard_ExecutorStartWithHooks(QueryDesc *queryDesc, int eflags)
+{
 	if (ExecutorStart_hook)
 		(*ExecutorStart_hook) (queryDesc, eflags);
 	else
@@ -296,6 +306,15 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 void
 ExecutorRun(QueryDesc *queryDesc,
 			ScanDirection direction, uint64 count)
+{
+	if (executorengine && executorengine->ExecutorRun)
+		executorengine->ExecutorRun(queryDesc, direction, count);
+	else
+		standard_ExecutorRunWithHooks(queryDesc, direction, count);
+}
+
+void
+standard_ExecutorRunWithHooks(QueryDesc *queryDesc, ScanDirection direction, uint64 count)
 {
 	if (ExecutorRun_hook)
 		(*ExecutorRun_hook) (queryDesc, direction, count);

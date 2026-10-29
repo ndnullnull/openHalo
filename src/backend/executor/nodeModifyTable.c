@@ -146,6 +146,10 @@ static void ExecCrossPartitionUpdateForeignKey(ModifyTableContext *context,
 											   ItemPointer tupleid,
 											   TupleTableSlot *oldslot,
 											   TupleTableSlot *newslot);
+static TupleTableSlot *ExecDelete(ModifyTableContext *context,
+	ResultRelInfo *resultRelInfo, ItemPointer tupleid, HeapTuple oldtuple,
+	bool processReturning, bool changingPart, bool canSetTag,
+	TM_Result *tmresult, bool *tupleDeleted, TupleTableSlot **epqreturnslot);
 static bool ExecOnConflictUpdate(ModifyTableContext *context,
 								 ResultRelInfo *resultRelInfo,
 								 ItemPointer conflictTid,
@@ -1139,7 +1143,71 @@ ExecInsert(ModifyTableContext *context,
 										   arbiterIndexes))
 			{
 				/* committed conflict tuple found */
-				if (onconflict == ONCONFLICT_UPDATE)
+				if (onconflict == ONCONFLICT_REPLACE)
+				{
+					TupleTableSlot *existing = ExecGetReturningSlot(estate, resultRelInfo);
+					TM_FailureData tmfd;
+					TM_Result result;
+					bool deleted = false;
+					TransitionCaptureState *insert_capture;
+
+					result = table_tuple_lock(resultRelationDesc, &conflictTid,
+											  estate->es_snapshot, existing, estate->es_output_cid,
+											  LockTupleExclusive, LockWaitBlock, 0, &tmfd);
+					if (result == TM_Invisible)
+					{
+						bool isnull;
+						TransactionId xmin = DatumGetTransactionId(slot_getsysattr(existing,
+															MinTransactionIdAttributeNumber, &isnull));
+
+						if (!isnull && TransactionIdIsCurrentTransactionId(xmin))
+						{
+							CommandId cmin = DatumGetCommandId(slot_getsysattr(existing,
+															MinCommandIdAttributeNumber, &isnull));
+
+							if (!isnull && cmin == estate->es_output_cid)
+							{
+								CommandId scan_cid = estate->es_snapshot->curcid;
+
+								/* Only advance writes.  In particular, do not update the
+								 * registered scan snapshot: INSERT SELECT must not see
+								 * rows that this command has just inserted. */
+								CommandCounterIncrement();
+								estate->es_output_cid = GetCurrentCommandId(true);
+								Assert(estate->es_snapshot->curcid == scan_cid);
+								ExecClearTuple(existing);
+								goto vlock;
+							}
+						}
+					}
+					if (result == TM_Updated || result == TM_Deleted)
+					{
+						if (IsolationUsesXactSnapshot())
+							ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
+											errmsg("could not serialize REPLACE due to concurrent modification")));
+						ExecClearTuple(existing);
+						goto vlock;
+					}
+					if (result != TM_Ok)
+						ereport(ERROR, (errcode(ERRCODE_CARDINALITY_VIOLATION),
+										errmsg("REPLACE could not lock the conflicting row")));
+					ExecCheckTupleVisible(estate, resultRelationDesc, existing);
+					if (resultRelInfo->ri_WithCheckOptions)
+						ExecWithCheckOptions(WCO_RLS_CONFLICT_CHECK, resultRelInfo,
+											 existing, estate);
+					insert_capture = mtstate->mt_transition_capture;
+					mtstate->mt_transition_capture = mtstate->mt_oc_transition_capture;
+					(void) ExecDelete(context, resultRelInfo, &conflictTid, NULL,
+									 false, false, canSetTag, NULL, &deleted, NULL);
+					mtstate->mt_transition_capture = insert_capture;
+					ExecClearTuple(existing);
+					if (!deleted)
+						ereport(ERROR, (errcode(ERRCODE_TRIGGERED_ACTION_EXCEPTION),
+										errmsg("REPLACE conflict deletion was canceled")));
+					InstrCountTuples2(&mtstate->ps, 1);
+					goto vlock;
+				}
+				else if (onconflict == ONCONFLICT_UPDATE)
 				{
 					/*
 					 * In case of ON CONFLICT DO UPDATE, execute the UPDATE
@@ -4010,6 +4078,8 @@ fireBSTriggers(ModifyTableState *node)
 	{
 		case CMD_INSERT:
 			ExecBSInsertTriggers(node->ps.state, resultRelInfo);
+			if (plan->onConflictAction == ONCONFLICT_REPLACE)
+				ExecBSDeleteTriggers(node->ps.state, resultRelInfo);
 			if (plan->onConflictAction == ONCONFLICT_UPDATE)
 				ExecBSUpdateTriggers(node->ps.state,
 									 resultRelInfo);
@@ -4023,6 +4093,8 @@ fireBSTriggers(ModifyTableState *node)
 		case CMD_MERGE:
 			if (node->mt_merge_subcommands & MERGE_INSERT)
 				ExecBSInsertTriggers(node->ps.state, resultRelInfo);
+			if (plan->onConflictAction == ONCONFLICT_REPLACE)
+				ExecBSDeleteTriggers(node->ps.state, resultRelInfo);
 			if (node->mt_merge_subcommands & MERGE_UPDATE)
 				ExecBSUpdateTriggers(node->ps.state, resultRelInfo);
 			if (node->mt_merge_subcommands & MERGE_DELETE)
@@ -4046,6 +4118,8 @@ fireASTriggers(ModifyTableState *node)
 	switch (node->operation)
 	{
 		case CMD_INSERT:
+			if (plan->onConflictAction == ONCONFLICT_REPLACE)
+				ExecASDeleteTriggers(node->ps.state, resultRelInfo, node->mt_oc_transition_capture);
 			if (plan->onConflictAction == ONCONFLICT_UPDATE)
 				ExecASUpdateTriggers(node->ps.state,
 									 resultRelInfo,
@@ -4094,11 +4168,12 @@ ExecSetupTransitionCaptureState(ModifyTableState *mtstate, EState *estate)
 								   RelationGetRelid(targetRelInfo->ri_RelationDesc),
 								   mtstate->operation);
 	if (plan->operation == CMD_INSERT &&
-		plan->onConflictAction == ONCONFLICT_UPDATE)
+		(plan->onConflictAction == ONCONFLICT_UPDATE ||
+		 plan->onConflictAction == ONCONFLICT_REPLACE))
 		mtstate->mt_oc_transition_capture =
 			MakeTransitionCaptureState(targetRelInfo->ri_TrigDesc,
 									   RelationGetRelid(targetRelInfo->ri_RelationDesc),
-									   CMD_UPDATE);
+									   plan->onConflictAction == ONCONFLICT_REPLACE ? CMD_DELETE : CMD_UPDATE);
 }
 
 /*

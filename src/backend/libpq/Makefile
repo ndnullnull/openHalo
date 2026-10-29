@@ -23,6 +23,7 @@ OBJS = \
 	be-secure-common.o \
 	be-secure.o \
 	crypt.o \
+	mysql_password.o \
 	hba.o \
 	ifaddr.o \
 	pqcomm.o \
@@ -39,3 +40,7 @@ OBJS += be-gssapi-common.o be-secure-gssapi.o
 endif
 
 include $(top_srcdir)/src/backend/common.mk
+
+# MySQL password format support is also needed by CREATE/ALTER ROLE.
+mysql_password.o: $(top_srcdir)/src/backend/adapter/mysql/pwdEncryptDecrypt.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@

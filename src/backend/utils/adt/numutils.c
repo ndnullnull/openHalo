@@ -21,6 +21,7 @@
 #include "common/int.h"
 #include "port/pg_bitutils.h"
 #include "utils/builtins.h"
+#include "utils/mysql/mys_compat.h"
 
 /*
  * A table of all two-digit numbers. This is used to speed up decimal digit
@@ -133,6 +134,9 @@ pg_strtoint16_safe(const char *s, Node *escontext)
 	bool		neg = false;
 	unsigned char digit;
 	int16		result;
+
+	if (MySQLNonStrictEmptyInput(s))
+		return 0;
 
 	/*
 	 * The majority of cases are likely to be base-10 digits without any
@@ -395,6 +399,9 @@ pg_strtoint32_safe(const char *s, Node *escontext)
 	unsigned char digit;
 	int32		result;
 
+	if (MySQLNonStrictEmptyInput(s))
+		return 0;
+
 	/*
 	 * The majority of cases are likely to be base-10 digits without any
 	 * underscore separator characters.  We'll first try to parse the string
@@ -655,6 +662,9 @@ pg_strtoint64_safe(const char *s, Node *escontext)
 	bool		neg = false;
 	unsigned char digit;
 	int64		result;
+
+	if (MySQLNonStrictEmptyInput(s))
+		return 0;
 
 	/*
 	 * The majority of cases are likely to be base-10 digits without any

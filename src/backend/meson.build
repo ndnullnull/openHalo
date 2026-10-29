@@ -8,6 +8,7 @@ generated_backend_sources = []
 post_export_backend_sources = []
 
 subdir('access')
+subdir('adapter')
 subdir('archive')
 subdir('backup')
 subdir('bootstrap')
@@ -196,3 +197,4 @@ subdir('replication/libpqwalreceiver')
 subdir('replication/pgoutput')
 subdir('snowball')
 subdir('utils/mb/conversion_procs')
+subdir('utils/ddsm/mysm')

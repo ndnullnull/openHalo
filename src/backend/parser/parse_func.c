@@ -13,6 +13,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "parser/parserapi.h"
 
 #include "access/htup_details.h"
 #include "catalog/pg_aggregate.h"
@@ -86,8 +87,8 @@ static Oid	LookupFuncNameInternal(ObjectType objtype, List *funcname,
  *	name must resolve to a procedure name, not anything else.  This flag
  *	also specifies that the argument list includes any OUT-mode arguments.
  */
-Node *
-ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
+static Node *
+pg18_ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 				  Node *last_srf, FuncCall *fn, bool proc_call, int location)
 {
 	bool		is_column = (fn == NULL);
@@ -879,73 +880,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		wfunc->runCondition = NIL;
 		wfunc->location = location;
 
-		/*
-		 * agg_star is allowed for aggregate functions but distinct isn't
-		 */
-		if (agg_distinct)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("DISTINCT is not implemented for window functions"),
-					 parser_errposition(pstate, location)));
-
-		/*
-		 * As above, enforce the correct argument-count limit if it's really
-		 * an aggregate.
-		 */
-		if (wfunc->winagg && list_length(fargs) > FUNC_MAX_ARGS - 1)
-			ereport(ERROR,
-					(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
-					 errmsg_plural("aggregates cannot have more than %d argument",
-								   "aggregates cannot have more than %d arguments",
-								   FUNC_MAX_ARGS - 1,
-								   FUNC_MAX_ARGS - 1),
-					 parser_errposition(pstate, location)));
-
-		/*
-		 * Reject attempt to call a parameterless aggregate without (*)
-		 * syntax.  This is mere pedantry but some folks insisted ...
-		 */
-		if (wfunc->winagg && fargs == NIL && !agg_star)
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("%s(*) must be used to call a parameterless aggregate function",
-							NameListToString(funcname)),
-					 parser_errposition(pstate, location)));
-
-		/*
-		 * ordered aggs not allowed in windows yet
-		 */
-		if (agg_order != NIL)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("aggregate ORDER BY is not implemented for window functions"),
-					 parser_errposition(pstate, location)));
-
-		/*
-		 * FILTER is not yet supported with true window functions
-		 */
-		if (!wfunc->winagg && agg_filter)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("FILTER is not implemented for non-aggregate window functions"),
-					 parser_errposition(pstate, location)));
-
-		/*
-		 * Window functions can't either take or return sets
-		 */
-		if (pstate->p_last_srf != last_srf)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("window function calls cannot contain set-returning function calls"),
-					 errhint("You might be able to move the set-returning function into a LATERAL FROM item."),
-					 parser_errposition(pstate,
-										exprLocation(pstate->p_last_srf))));
-
-		if (retset)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("window functions cannot return sets"),
-					 parser_errposition(pstate, location)));
+		preTransformWindowAgg(pstate, wfunc, funcname, agg_distinct,
+							  agg_order, last_srf, retset);
 
 		/* parse_agg.c does additional window-func-specific processing */
 		transformWindowFuncCall(pstate, wfunc, over);
@@ -1446,8 +1382,8 @@ func_select_candidate(int nargs,
  * the fargs list must be passed if the caller wants actual argument position
  * information to be returned into the NamedArgExpr nodes.
  */
-FuncDetailCode
-func_get_detail(List *funcname,
+static FuncDetailCode
+pg18_func_get_detail(List *funcname,
 				List *fargs,
 				List *fargnames,
 				int nargs,
@@ -1876,8 +1812,8 @@ unify_hypothetical_args(ParseState *pstate,
  * As with coerce_type, pstate may be NULL if no special unknown-Param
  * processing is wanted.
  */
-void
-make_fn_arguments(ParseState *pstate,
+static void
+pg18_make_fn_arguments(ParseState *pstate,
 				  List *fargs,
 				  Oid *actual_arg_types,
 				  Oid *declared_arg_types)
@@ -2732,4 +2668,142 @@ check_srf_call_placement(ParseState *pstate, Node *last_srf, int location)
 				 errmsg("set-returning functions are not allowed in %s",
 						ParseExprKindName(pstate->p_expr_kind)),
 				 parser_errposition(pstate, location)));
+}
+
+Node *
+ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
+				  Node *last_srf, FuncCall *fn, bool proc_call, int location)
+{
+	if (parserengine && parserengine->ParseFuncOrColumn)
+	{
+		return parserengine->ParseFuncOrColumn(pstate, funcname, fargs, last_srf, fn, proc_call,
+		location);
+	}
+	return pg18_ParseFuncOrColumn(pstate, funcname, fargs, last_srf, fn, proc_call, location);
+}
+
+FuncDetailCode
+func_get_detail(List *funcname,
+				List *fargs,
+				List *fargnames,
+				int nargs,
+				Oid *argtypes,
+				bool expand_variadic,
+				bool expand_defaults,
+				bool include_out_arguments,
+				Oid *funcid,	/* return value */
+				Oid *rettype,	/* return value */
+				bool *retset,	/* return value */
+				int *nvargs,	/* return value */
+				Oid *vatype,	/* return value */
+				Oid **true_typeids, /* return value */
+				List **argdefaults) /* optional return value */
+{
+	if (parserengine && parserengine->func_get_detail)
+	{
+		return parserengine->func_get_detail(funcname, fargs, fargnames, nargs, argtypes,
+		expand_variadic, expand_defaults, include_out_arguments, funcid, rettype, retset, nvargs,
+		vatype, true_typeids, argdefaults);
+	}
+	return pg18_func_get_detail(funcname, fargs, fargnames, nargs, argtypes, expand_variadic, expand_defaults, include_out_arguments, funcid, rettype, retset, nvargs, vatype, true_typeids, argdefaults);
+}
+
+void
+make_fn_arguments(ParseState *pstate,
+				  List *fargs,
+				  Oid *actual_arg_types,
+				  Oid *declared_arg_types)
+{
+	if (parserengine && parserengine->make_fn_arguments)
+	{
+		parserengine->make_fn_arguments(pstate, fargs, actual_arg_types, declared_arg_types);
+		return;
+	}
+	pg18_make_fn_arguments(pstate, fargs, actual_arg_types, declared_arg_types);
+}
+
+void
+standard_preTransformWindowAgg(ParseState *pstate, WindowFunc *wfunc, List *funcname,
+					  bool agg_distinct, List *agg_order, Node *last_srf, bool retset)
+{
+	/*
+	 * agg_star is allowed for aggregate functions but distinct isn't
+	 */
+	if (agg_distinct)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("DISTINCT is not implemented for window functions"),
+				 parser_errposition(pstate, wfunc->location)));
+
+	/*
+	 * As above, enforce the correct argument-count limit if it's really
+	 * an aggregate.
+	 */
+	if (wfunc->winagg && list_length(wfunc->args) > FUNC_MAX_ARGS - 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
+				 errmsg_plural("aggregates cannot have more than %d argument",
+							   "aggregates cannot have more than %d arguments",
+							   FUNC_MAX_ARGS - 1,
+							   FUNC_MAX_ARGS - 1),
+				 parser_errposition(pstate, wfunc->location)));
+
+	/*
+	 * Reject attempt to call a parameterless aggregate without (*)
+	 * syntax.  This is mere pedantry but some folks insisted ...
+	 */
+	if (wfunc->winagg && wfunc->args == NIL && !wfunc->winstar)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("%s(*) must be used to call a parameterless aggregate function",
+						NameListToString(funcname)),
+				 parser_errposition(pstate, wfunc->location)));
+
+	/*
+	 * ordered aggs not allowed in windows yet
+	 */
+	if (agg_order != NIL)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("aggregate ORDER BY is not implemented for window functions"),
+				 parser_errposition(pstate, wfunc->location)));
+
+	/*
+	 * FILTER is not yet supported with true window functions
+	 */
+	if (!wfunc->winagg && wfunc->aggfilter)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("FILTER is not implemented for non-aggregate window functions"),
+				 parser_errposition(pstate, wfunc->location)));
+
+	/*
+	 * Window functions can't either take or return sets
+	 */
+	if (pstate->p_last_srf != last_srf)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("window function calls cannot contain set-returning function calls"),
+				 errhint("You might be able to move the set-returning function into a LATERAL FROM item."),
+				 parser_errposition(pstate,
+									exprLocation(pstate->p_last_srf))));
+
+	if (retset)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("window functions cannot return sets"),
+				 parser_errposition(pstate, wfunc->location)));
+
+}
+
+void
+preTransformWindowAgg(ParseState *pstate, WindowFunc *wfunc, List *funcname,
+					  bool agg_distinct, List *agg_order, Node *last_srf, bool retset)
+{
+	if (parserengine && parserengine->preTransformWindowAgg)
+		parserengine->preTransformWindowAgg(pstate, wfunc, funcname, agg_distinct, agg_order,
+		last_srf, retset);
+	else
+		standard_preTransformWindowAgg(pstate, wfunc, funcname, agg_distinct, agg_order,
+		last_srf, retset);
 }

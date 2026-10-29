@@ -15,12 +15,19 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "executor/executor_engine.h"
+#include "adapter/mysql/systemVar.h"
+#include "nodes/mysql/mys_parsenodes.h"
+#include "executor/executor.h"
+#include "optimizer/optimizer.h"
+#include "rewrite/rewriteHandler.h"
 
 #include "access/reloptions.h"
 #include "access/twophase.h"
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_namespace.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/toasting.h"
@@ -50,6 +57,7 @@
 #include "commands/sequence.h"
 #include "commands/subscriptioncmds.h"
 #include "commands/tablecmds.h"
+#include "commands/mysql/mys_tablecmds.h"
 #include "commands/tablespace.h"
 #include "commands/trigger.h"
 #include "commands/typecmds.h"
@@ -265,6 +273,7 @@ ClassifyUtilityCommandAsReadOnly(Node *parsetree)
 		case T_LoadStmt:
 		case T_PrepareStmt:
 		case T_UnlistenStmt:
+		case T_MysVariableSetStmt:
 		case T_VariableSetStmt:
 			{
 				/*
@@ -515,6 +524,20 @@ ProcessUtility(PlannedStmt *pstmt,
 	 * control when ProcessUtility is called.  Such a plugin would normally
 	 * call standard_ProcessUtility().
 	 */
+	if (executorengine && executorengine->ProcessUtility)
+		executorengine->ProcessUtility(pstmt, queryString, readOnlyTree,
+									context, params, queryEnv, dest, qc);
+	else
+		standard_ProcessUtilityWithHooks(pstmt, queryString, readOnlyTree,
+									context, params, queryEnv, dest, qc);
+}
+
+void
+standard_ProcessUtilityWithHooks(PlannedStmt *pstmt, const char *queryString,
+								bool readOnlyTree, ProcessUtilityContext context,
+								ParamListInfo params, QueryEnvironment *queryEnv,
+								DestReceiver *dest, QueryCompletion *qc)
+{
 	if (ProcessUtility_hook)
 		(*ProcessUtility_hook) (pstmt, queryString, readOnlyTree,
 								context, params, queryEnv,
@@ -675,6 +698,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					case TRANS_STMT_ROLLBACK_TO:
 						RequireTransactionBlock(isTopLevel, "ROLLBACK TO SAVEPOINT");
 						RollbackToSavepoint(stmt->savepoint_name);
+						mysqlRecordRollbackToSavepoint();
 
 						/*
 						 * CommitTransactionCommand is in charge of
@@ -871,8 +895,51 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			AlterSystemSetConfigFile((AlterSystemStmt *) parsetree);
 			break;
 
+		case T_MysVariableSetStmt:
+			{
+				Query *query = castNode(Query, ((MysVariableSetStmt *) parsetree)->varSetStmt);
+				List *rewritten = QueryRewrite(query);
+				PlannedStmt *plan;
+				QueryDesc *desc;
+				DestReceiver *receiver = CreateDestReceiver(DestNone);
+
+				if (list_length(rewritten) != 1)
+					elog(ERROR, "unexpected rewrite result for MySQL SET");
+				query = linitial_node(Query, rewritten);
+				Assert(query->commandType == CMD_SELECT);
+				plan = pg_plan_query(query, queryString, CURSOR_OPT_PARALLEL_OK, params);
+				PushCopiedSnapshot(GetActiveSnapshot());
+				UpdateActiveSnapshotCommandId();
+				desc = CreateQueryDesc(plan, queryString, GetActiveSnapshot(),
+									   InvalidSnapshot, receiver, params, queryEnv, 0);
+				ExecutorStart(desc, 0);
+				ExecutorRun(desc, ForwardScanDirection, 0);
+				ExecutorFinish(desc);
+				ExecutorEnd(desc);
+				FreeQueryDesc(desc);
+				receiver->rDestroy(receiver);
+				PopActiveSnapshot();
+				mysqlFinishVariableCommand();
+			}
+			break;
+
 		case T_VariableSetStmt:
-			ExecSetVariableStmt((VariableSetStmt *) parsetree, isTopLevel);
+			{
+				VariableSetStmt *stmt = (VariableSetStmt *) parsetree;
+
+				if (stmt->mysql_use)
+				{
+					A_Const *database = linitial_node(A_Const, stmt->args);
+					char *name = strVal(&database->val);
+					Oid namespace = get_namespace_oid(name, false);
+					AclResult aclresult = object_aclcheck(NamespaceRelationId,
+												 namespace, GetUserId(), ACL_USAGE);
+
+					if (aclresult != ACLCHECK_OK)
+						aclcheck_error(aclresult, OBJECT_SCHEMA, name);
+				}
+				ExecSetVariableStmt(stmt, isTopLevel);
+			}
 			break;
 
 		case T_VariableShowStmt:
@@ -2013,6 +2080,11 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel)
 	switch (stmt->removeType)
 	{
 		case OBJECT_INDEX:
+			if (stmt->mysql_table)
+			{
+				mysDropIndexOnTable(stmt);
+				break;
+			}
 			if (stmt->concurrent)
 				PreventInTransactionBlock(isTopLevel,
 										  "DROP INDEX CONCURRENTLY");
@@ -2914,6 +2986,10 @@ CreateCommandTag(Node *parsetree)
 			tag = CMDTAG_ALTER_SYSTEM;
 			break;
 
+		case T_MysVariableSetStmt:
+			tag = CMDTAG_SET;
+			break;
+
 		case T_VariableSetStmt:
 			switch (((VariableSetStmt *) parsetree)->kind)
 			{
@@ -3565,6 +3641,7 @@ GetCommandLogLevel(Node *parsetree)
 			lev = LOGSTMT_DDL;
 			break;
 
+		case T_MysVariableSetStmt:
 		case T_VariableSetStmt:
 			lev = LOGSTMT_ALL;
 			break;

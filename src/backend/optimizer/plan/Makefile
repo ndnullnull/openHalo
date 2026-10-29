@@ -13,6 +13,7 @@ top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
 OBJS = \
+	planner_engine.o \
 	analyzejoins.o \
 	createplan.o \
 	initsplan.o \

@@ -13,6 +13,7 @@ top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
 OBJS = \
+	funcext.o \
 	dfmgr.o \
 	fmgr.o \
 	funcapi.o

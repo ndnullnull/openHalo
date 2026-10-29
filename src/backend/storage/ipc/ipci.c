@@ -13,6 +13,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "adapter/mysql/systemVar.h"
 
 #include "access/clog.h"
 #include "access/commit_ts.h"
@@ -108,6 +109,7 @@ CalculateShmemSize(int *num_semaphores)
 	 * during the actual allocation phase.
 	 */
 	size = 100000;
+	size = add_size(size, GlobalSystemVariablesShmemSize());
 	size = add_size(size, PGSemaphoreShmemSize(numSemas));
 	size = add_size(size, hash_estimate_size(SHMEM_INDEX_SIZE,
 											 sizeof(ShmemIndexEnt)));
@@ -345,6 +347,7 @@ CreateOrAttachShmemStructs(void)
 	WaitEventCustomShmemInit();
 	InjectionPointShmemInit();
 	AioShmemInit();
+	GlobalSystemVariablesShmemInit();
 }
 
 /*

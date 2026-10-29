@@ -71,3 +71,5 @@ subdir('unaccent')
 subdir('uuid-ossp')
 subdir('vacuumlo')
 subdir('xml2')
+
+subdir('aux_mysql')

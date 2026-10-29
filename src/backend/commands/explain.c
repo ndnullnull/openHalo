@@ -16,6 +16,7 @@
 #include "access/xact.h"
 #include "catalog/pg_type.h"
 #include "commands/createas.h"
+#include "commands/mysql/mys_createas.h"
 #include "commands/defrem.h"
 #include "commands/explain.h"
 #include "commands/explain_dr.h"
@@ -403,6 +404,22 @@ ExplainOneUtility(Node *utilityStmt, IntoClause *into, ExplainState *es,
 		Query	   *ctas_query;
 		List	   *rewritten;
 		JumbleState *jstate = NULL;
+
+		/* Execute the same CREATE/INSERT path as an ordinary MySQL CTAS.
+		 * Plain EXPLAIN continues to plan only SELECT without creating any
+		 * relation.  ANALYZE must include assignment, defaults and constraints. */
+		if (ctas->mysql_query != NULL && es->analyze)
+		{
+			ObjectAddress address;
+			Query *insert = mys_PrepareCreateTableAs(pstate, ctas, params,
+													 pstate->p_queryEnv, &address);
+
+			if (insert)
+				ExplainOneQuery(insert, CURSOR_OPT_PARALLEL_OK, NULL, es, pstate, params);
+			else
+				ExplainDummyGroup("CREATE TABLE AS (no data)", NULL, es);
+			return;
+		}
 
 		/*
 		 * Check if the relation exists or not.  This is done at this stage to
@@ -4675,7 +4692,8 @@ show_modifytable_info(ModifyTableState *mtstate, List *ancestors,
 	{
 		ExplainPropertyText("Conflict Resolution",
 							node->onConflictAction == ONCONFLICT_NOTHING ?
-							"NOTHING" : "UPDATE",
+							"NOTHING" : node->onConflictAction == ONCONFLICT_REPLACE ?
+							"REPLACE" : "UPDATE",
 							es);
 
 		/*
@@ -4705,11 +4723,15 @@ show_modifytable_info(ModifyTableState *mtstate, List *ancestors,
 			/* count the number of source rows */
 			total = outerPlanState(mtstate)->instrument->ntuples;
 			other_path = mtstate->ps.instrument->ntuples2;
-			insert_path = total - other_path;
+			/* REPLACE deletes conflicts and still inserts each proposed row;
+			 * several different conflicts can be deleted for one source row. */
+			insert_path = node->onConflictAction == ONCONFLICT_REPLACE ?
+				total : total - other_path;
 
 			ExplainPropertyFloat("Tuples Inserted", NULL,
 								 insert_path, 0, es);
-			ExplainPropertyFloat("Conflicting Tuples", NULL,
+			ExplainPropertyFloat(node->onConflictAction == ONCONFLICT_REPLACE ?
+							 "Conflicting Tuples Deleted" : "Conflicting Tuples", NULL,
 								 other_path, 0, es);
 		}
 	}

@@ -1,6 +1,7 @@
 # Copyright (c) 2022-2025, PostgreSQL Global Development Group
 
 backend_sources += files(
+  'funcext.c',
   'dfmgr.c',
   'fmgr.c',
   'funcapi.c',

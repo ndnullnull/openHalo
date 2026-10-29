@@ -37,6 +37,7 @@
 #include "utils/builtins.h"
 #include "utils/expandeddatum.h"
 #include "utils/lsyscache.h"
+#include "utils/mysql/mys_compat.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 
@@ -261,6 +262,10 @@ domain_in(PG_FUNCTION_ARGS)
 	/*
 	 * Invoke the base type's typinput procedure to convert the data.
 	 */
+	if (string != NULL && string[0] == '\0' &&
+		MySQLNonStrictEmptyInput(string))
+		string = "0";
+
 	if (!InputFunctionCallSafe(&my_extra->proc,
 							   string,
 							   my_extra->typioparam,

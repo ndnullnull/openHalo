@@ -43,6 +43,7 @@
 #include "parser/analyze.h"
 #include "rewrite/rewriteHandler.h"
 #include "tcop/tcopprot.h"
+#include "commands/mysql/mys_createas.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rls.h"
@@ -231,6 +232,9 @@ ExecCreateTableAs(ParseState *pstate, CreateTableAsStmt *stmt,
 	bool		do_refresh = false;
 	DestReceiver *dest;
 	ObjectAddress address;
+
+	if (stmt->mysql_query != NULL)
+		return mys_ExecCreateTableAs(pstate, stmt, params, queryEnv, qc);
 
 	/* Check if the relation exists or not */
 	if (CreateTableAsRelExists(stmt))

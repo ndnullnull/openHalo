@@ -227,6 +227,9 @@ CATALOG(pg_type,1247,TypeRelationId) BKI_BOOTSTRAP BKI_ROWTYPE_OID(71,TypeRelati
 	 */
 	Oid			typcollation BKI_DEFAULT(0) BKI_LOOKUP_OPT(pg_collation);
 
+	/* OpenHalo type access metadata, retained for format compatibility. */
+	char		typaccess BKI_DEFAULT(n);
+
 #ifdef CATALOG_VARLEN			/* variable-length fields start here */
 
 	/*
@@ -345,6 +348,8 @@ MAKE_SYSCACHE(TYPENAMENSP, pg_type_typname_nsp_index, 64);
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 
 
+#define TYPE_ACCESS_NON_PACKAGE_MEMBER 'n'
+
 extern ObjectAddress TypeShellMake(const char *typeName,
 								   Oid typeNamespace,
 								   Oid ownerId);
@@ -380,7 +385,8 @@ extern ObjectAddress TypeCreate(Oid newTypeOid,
 								int32 typeMod,
 								int32 typNDims,
 								bool typeNotNull,
-								Oid typeCollation);
+								Oid typeCollation,
+								char typeaccess);
 
 extern void GenerateTypeDependencies(HeapTuple typeTuple,
 									 Relation typeCatalog,

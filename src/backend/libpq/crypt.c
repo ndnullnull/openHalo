@@ -12,6 +12,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "adapter/mysql/pwdEncryptDecrypt.h"
 
 #include <unistd.h>
 
@@ -96,6 +97,13 @@ get_password_type(const char *shadow_pass)
 	uint8		stored_key[SCRAM_MAX_KEY_LEN];
 	uint8		server_key[SCRAM_MAX_KEY_LEN];
 
+	if (strncmp(shadow_pass, mysql_native_password_prefix,
+				MYS_NATIVE_PASSWORD_PREFIX_LEN) == 0 &&
+		strlen(shadow_pass) == MYS_NATIVE_PASSWORD_LEN &&
+		strspn(shadow_pass + MYS_NATIVE_PASSWORD_PREFIX_LEN, "0123456789abcdef") ==
+			MYS_NATIVE_PASSWORD_LEN - MYS_NATIVE_PASSWORD_PREFIX_LEN)
+		return PASSWORD_TYPE_MYS_NATIVE_PASSWORD;
+
 	if (strncmp(shadow_pass, "md5", 3) == 0 &&
 		strlen(shadow_pass) == MD5_PASSWD_LEN &&
 		strspn(shadow_pass + 3, MD5_PASSWD_CHARSET) == MD5_PASSWD_LEN - 3)
@@ -143,6 +151,12 @@ encrypt_password(PasswordType target_type, const char *role,
 
 			case PASSWORD_TYPE_SCRAM_SHA_256:
 				encrypted_password = pg_be_scram_build_secret(password);
+				break;
+
+			case PASSWORD_TYPE_MYS_NATIVE_PASSWORD:
+				encrypted_password = palloc(MYS_NATIVE_PASSWORD_LEN + 1);
+				if (!mysNativePwdEncrypt(password, encrypted_password))
+					elog(ERROR, "MySQL password encryption failed");
 				break;
 
 			case PASSWORD_TYPE_PLAINTEXT:
@@ -304,6 +318,7 @@ plain_crypt_verify(const char *role, const char *shadow_pass,
 			}
 			break;
 
+		case PASSWORD_TYPE_MYS_NATIVE_PASSWORD:
 		case PASSWORD_TYPE_PLAINTEXT:
 
 			/*

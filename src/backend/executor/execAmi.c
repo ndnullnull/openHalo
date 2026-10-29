@@ -11,6 +11,7 @@
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
+#include "executor/executor_engine.h"
 
 #include "access/amapi.h"
 #include "access/htup_details.h"
@@ -74,7 +75,7 @@ static bool IndexSupportsBackwardScan(Oid indexid);
  * the output might be different from last time.
  */
 void
-ExecReScan(PlanState *node)
+standard_ExecReScan(PlanState *node)
 {
 	/* If collecting timing stats, update them */
 	if (node->instrument)

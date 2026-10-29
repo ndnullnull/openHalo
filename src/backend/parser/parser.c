@@ -10,6 +10,7 @@
  * analyze.c and related files.
  *
  *
+ * Portions Copyright (c) 2021, Halo Tech Co.,Ltd.
  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
@@ -20,6 +21,8 @@
  */
 
 #include "postgres.h"
+#include "parser/parserapi.h"
+#include "utils/memutils.h"
 
 #include "gramparse.h"
 #include "mb/pg_wchar.h"
@@ -38,8 +41,8 @@ static char *str_udeescape(const char *str, char escape,
  * Returns a list of raw (un-analyzed) parse trees.  The contents of the
  * list have the form required by the specified RawParseMode.
  */
-List *
-raw_parser(const char *str, RawParseMode mode)
+static List *
+pg18_raw_parser(const char *str, RawParseMode mode)
 {
 	core_yyscan_t yyscanner;
 	base_yy_extra_type yyextra;
@@ -524,4 +527,48 @@ invalid_pair:
 			 scanner_errposition(in - str + position + 3,	/* 3 for U&" */
 								 yyscanner)));
 	return NULL;				/* keep compiler quiet */
+}
+
+List *
+raw_parser(const char *str, RawParseMode mode)
+{
+	List *volatile result = NIL;
+	MemoryContext oldcontext = CurrentMemoryContext;
+
+	if (parserengine == NULL)
+		parserengine = GetStandardParserEngine();
+	PG_TRY();
+	{
+		result = parserengine->raw_parser(str, mode);
+	}
+	PG_CATCH();
+	{
+		/* Preserve the old auxiliary grammar, without swallowing interrupts. */
+		if (parserengine->is_standard_parser ||
+			standard_parserengine_auxiliary != STANDARDARD_PARSERENGINE_AUXILIARY_ON ||
+			!parserengine->need_standard_parser ||
+			geterrcode() != ERRCODE_SYNTAX_ERROR)
+			PG_RE_THROW();
+		MemoryContextSwitchTo(oldcontext);
+		FlushErrorState();
+		result = pg18_raw_parser(str, mode);
+	}
+	PG_END_TRY();
+	return (List *) result;
+}
+
+static const ParserRoutine standard_parser_engine = {
+	.compat_mode = POSTGRESQL_COMPAT_MODE,
+	.is_standard_parser = true,
+	.need_standard_parser = false,
+	.keywordlist = &ScanKeywords,
+	.keyword_tokens = ScanKeywordTokens,
+	.keyword_categories = ScanKeywordCategories,
+	.raw_parser = pg18_raw_parser
+};
+
+const ParserRoutine *
+GetStandardParserEngine(void)
+{
+	return &standard_parser_engine;
 }

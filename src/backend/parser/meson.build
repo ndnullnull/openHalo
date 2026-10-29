@@ -2,6 +2,7 @@
 
 backend_sources += files(
   'analyze.c',
+  'parsereng.c',
   'parse_agg.c',
   'parse_clause.c',
   'parse_coerce.c',
@@ -49,3 +50,5 @@ parser = static_library('parser',
   kwargs: internal_lib_args,
 )
 backend_link_with += parser
+
+subdir('mysql')

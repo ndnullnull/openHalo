@@ -38,3 +38,31 @@ src/timezone/data/*			-whitespace
 src/tools/pg_bsd_indent/*		-whitespace
 src/tools/pg_bsd_indent/tests/*		-whitespace
 src/tools/pg_bsd_indent/*.[ch]		whitespace=-blank-at-eol,-blank-at-eof,tabwidth=8
+
+# Original OpenHalo documents retain historical trailing spaces byte for byte.
+/COPYRIGHT whitespace=-blank-at-eol
+/README.md whitespace=-blank-at-eol
+/CONTRIBUTING.md whitespace=-blank-at-eol
+
+# OpenHalo's imported compatibility implementation uses spaces.  Keep its
+# local indentation while checking trailing whitespace and mixed indentation.
+/src/backend/adapter/mysql/*.[ch] whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/backend/commands/mysql/*.[ch] whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/backend/parser/mysql/*.[chly] whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/backend/utils/adt/mysql/*.[ch] whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/backend/utils/ddsm/mysm/*.[ch] whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/include/adapter/mysql/*.h whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/include/commands/mysql/*.h whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/include/parser/mysql/*.h whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/include/utils/mysql/*.h whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/include/parser/parserapi.h whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/include/postmaster/protocol_interface.h whitespace=space-before-tab,trailing-space,tabwidth=4
+/src/include/rewrite/rewriteapi.h whitespace=space-before-tab,trailing-space,tabwidth=4
+
+# Historical extension SQL bodies retain their original whitespace and source
+# text.  New PG18 upgrade SQL continues to use the normal checks above.
+/contrib/aux_mysql/aux_mysql--1.1.sql whitespace=-blank-at-eol,-blank-at-eof
+/contrib/aux_mysql/aux_mysql--1.1--1.2.sql whitespace=-blank-at-eol,-blank-at-eof
+/contrib/aux_mysql/aux_mysql--1.2--1.3.sql whitespace=-blank-at-eol,-blank-at-eof
+/contrib/aux_mysql/aux_mysql--1.3--1.4.sql whitespace=-blank-at-eol,-blank-at-eof
+/contrib/aux_mysql/aux_mysql--1.4--1.5.sql whitespace=-blank-at-eol,-blank-at-eof

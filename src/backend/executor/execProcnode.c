@@ -71,6 +71,7 @@
  *		in turn call these routines themselves on their subplans.
  */
 #include "postgres.h"
+#include "executor/executor_engine.h"
 
 #include "executor/executor.h"
 #include "executor/nodeAgg.h"
@@ -139,7 +140,7 @@ static bool ExecShutdownNode_walker(PlanState *node, void *context);
  * ------------------------------------------------------------------------
  */
 PlanState *
-ExecInitNode(Plan *node, EState *estate, int eflags)
+standard_ExecInitNode(Plan *node, EState *estate, int eflags)
 {
 	PlanState  *result;
 	List	   *subps;
@@ -504,7 +505,7 @@ ExecProcNodeInstr(PlanState *node)
  * ----------------------------------------------------------------
  */
 Node *
-MultiExecProcNode(PlanState *node)
+standard_MultiExecProcNode(PlanState *node)
 {
 	Node	   *result;
 
@@ -559,7 +560,7 @@ MultiExecProcNode(PlanState *node)
  * ----------------------------------------------------------------
  */
 void
-ExecEndNode(PlanState *node)
+standard_ExecEndNode(PlanState *node)
 {
 	/*
 	 * do nothing when we get to the end of a leaf on tree.
@@ -769,7 +770,7 @@ ExecEndNode(PlanState *node)
  * and release any resources still held.
  */
 void
-ExecShutdownNode(PlanState *node)
+standard_ExecShutdownNode(PlanState *node)
 {
 	(void) ExecShutdownNode_walker(node, NULL);
 }
